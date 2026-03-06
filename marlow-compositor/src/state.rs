@@ -1,6 +1,6 @@
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::{ffi::OsString, sync::Arc};
+use std::{collections::HashSet, ffi::OsString, sync::Arc};
 
 use smithay::{
     desktop::{PopupManager, Space, Window, WindowSurfaceType},
@@ -47,6 +47,14 @@ pub struct Marlow {
     pub ipc_listener: Option<UnixListener>,
     pub ipc_clients: Vec<UnixStream>,
     pub ipc_socket_path: Option<PathBuf>,
+
+    // Screenshot (flag + buffer for async capture in render loop)
+    pub screenshot_pending: bool,
+    pub screenshot_data: Option<String>, // base64 PNG
+
+    // Event streaming
+    pub event_queue: Vec<marlow_ipc::Event>,
+    pub ipc_subscribed: HashSet<usize>, // indices of subscribed clients
 }
 
 impl Marlow {
@@ -88,6 +96,10 @@ impl Marlow {
             ipc_listener: None,
             ipc_clients: Vec::new(),
             ipc_socket_path: None,
+            screenshot_pending: false,
+            screenshot_data: None,
+            event_queue: Vec::new(),
+            ipc_subscribed: HashSet::new(),
         }
     }
 

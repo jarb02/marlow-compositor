@@ -95,6 +95,29 @@ impl SeatHandler for Marlow {
         let dh = &self.display_handle;
         let client = focused.and_then(|s| dh.get_client(s.id()).ok());
         set_data_device_focus(dh, seat, client);
+
+        // Emit WindowFocused event for IPC subscribers
+        if let Some(surface) = focused {
+            if let Some((idx, _window)) = self
+                .space
+                .elements()
+                .enumerate()
+                .find(|(_, w)| w.toplevel().unwrap().wl_surface() == surface)
+            {
+                let title = smithay::wayland::compositor::with_states(surface, |states| {
+                    states
+                        .data_map
+                        .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
+                        .and_then(|d| d.lock().ok())
+                        .and_then(|d| d.title.clone())
+                        .unwrap_or_default()
+                });
+                self.event_queue.push(marlow_ipc::Event::WindowFocused {
+                    window_id: idx as u64,
+                    title,
+                });
+            }
+        }
     }
 }
 

@@ -5,7 +5,8 @@ use smithay::{
         renderer::{
             damage::OutputDamageTracker,
             element::surface::WaylandSurfaceRenderElement,
-            gles::GlesRenderer,
+            gles::{GlesRenderer, GlesTarget},
+            ExportMem,
         },
         winit::{self, WinitEvent},
     },
@@ -92,6 +93,12 @@ pub fn init_winit(
 
                 backend.submit(Some(&[damage])).unwrap();
 
+                // Screenshot capture after submit — re-bind to read the back buffer
+                if state.screenshot_pending {
+                    let (renderer, framebuffer) = backend.bind().unwrap();
+                    capture_screenshot(renderer, &framebuffer, size.w, size.h, state);
+                }
+
                 state.space.elements().for_each(|window| {
                     window.send_frame(
                         &output,
@@ -114,4 +121,52 @@ pub fn init_winit(
         })?;
 
     Ok(())
+}
+
+/// Capture the current framebuffer as base64 PNG.
+fn capture_screenshot(
+    renderer: &mut GlesRenderer,
+    framebuffer: &GlesTarget<'_>,
+    width: i32,
+    height: i32,
+    state: &mut Marlow,
+) {
+    use base64::Engine;
+    use smithay::backend::allocator::Fourcc;
+
+    let region = Rectangle::new((0, 0).into(), (width, height).into());
+    match renderer.copy_framebuffer(framebuffer, region, Fourcc::Abgr8888) {
+        Ok(mapping) => match renderer.map_texture(&mapping) {
+            Ok(pixels) => {
+                let rgba = pixels.to_vec();
+                if let Some(img) =
+                    image::RgbaImage::from_raw(width as u32, height as u32, rgba)
+                {
+                    let mut png_buf = Vec::new();
+                    let mut cursor = std::io::Cursor::new(&mut png_buf);
+                    if img
+                        .write_to(&mut cursor, image::ImageFormat::Png)
+                        .is_ok()
+                    {
+                        let b64 = base64::engine::general_purpose::STANDARD
+                            .encode(&png_buf);
+                        state.screenshot_data = Some(b64);
+                        tracing::info!(
+                            "Screenshot captured: {}x{}, {} bytes PNG",
+                            width,
+                            height,
+                            png_buf.len()
+                        );
+                    } else {
+                        tracing::error!("Screenshot PNG encoding failed");
+                    }
+                } else {
+                    tracing::error!("Screenshot: invalid pixel data dimensions");
+                }
+            }
+            Err(e) => tracing::error!("Screenshot map_texture failed: {e:?}"),
+        },
+        Err(e) => tracing::error!("Screenshot copy_framebuffer failed: {e:?}"),
+    }
+    state.screenshot_pending = false;
 }

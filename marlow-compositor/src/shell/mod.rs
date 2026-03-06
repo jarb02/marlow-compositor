@@ -35,8 +35,30 @@ impl XdgShellHandler for Marlow {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        let window = Window::new_wayland_window(surface);
+        let window = Window::new_wayland_window(surface.clone());
         self.space.map_element(window, (0, 0), false);
+
+        // Emit WindowCreated event for IPC subscribers
+        let wl_surface = surface.wl_surface();
+        let (title, app_id) = with_states(wl_surface, |states| {
+            let data = states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .map(|d| d.lock().unwrap());
+            match data {
+                Some(d) => (
+                    d.title.clone().unwrap_or_default(),
+                    d.app_id.clone().unwrap_or_default(),
+                ),
+                None => (String::new(), String::new()),
+            }
+        });
+        let window_id = self.space.elements().count().saturating_sub(1) as u64;
+        self.event_queue.push(marlow_ipc::Event::WindowCreated {
+            window_id,
+            title,
+            app_id,
+        });
     }
 
     fn new_popup(&mut self, surface: PopupSurface, _positioner: PositionerState) {
