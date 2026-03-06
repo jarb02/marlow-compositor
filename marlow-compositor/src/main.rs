@@ -2,6 +2,7 @@
 
 mod backend;
 mod input;
+mod ipc;
 mod shell;
 mod wayland;
 
@@ -19,6 +20,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     backend::winit::init_winit(&mut event_loop, &mut state)?;
 
+    // Start IPC server
+    match ipc::init_ipc(&mut state) {
+        Ok(path) => tracing::info!("IPC socket: {}", path.display()),
+        Err(e) => tracing::error!("Failed to start IPC: {e}"),
+    }
+
     tracing::info!("Marlow Compositor running on {}", state.socket_name.to_string_lossy());
 
     // Set WAYLAND_DISPLAY so child processes connect to us
@@ -27,7 +34,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Optionally spawn a client: marlow-compositor -c foot
     spawn_client();
 
-    event_loop.run(None, &mut state, move |_| {})?;
+    event_loop.run(None, &mut state, |state| {
+        ipc::poll_ipc(state);
+    })?;
+
+    // Cleanup IPC socket
+    if let Some(path) = &state.ipc_socket_path {
+        std::fs::remove_file(path).ok();
+    }
 
     Ok(())
 }

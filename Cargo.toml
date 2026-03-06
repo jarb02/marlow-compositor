@@ -1,17 +1,3 @@
-[package]
-name = "marlow-compositor"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-smithay = { git = "https://github.com/Smithay/smithay", features = [
-    "wayland_frontend",
-    "backend_winit",
-    "renderer_gl",
-    "desktop",
-] }
-calloop = "0.14"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-bitflags = "2"
-xkbcommon = { version = "0.8", features = ["wayland"] }
+[workspace]
+members = ["marlow-compositor", "marlow-ipc"]
+resolver = "2"

@@ -1,3 +1,5 @@
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::{ffi::OsString, sync::Arc};
 
 use smithay::{
@@ -40,6 +42,11 @@ pub struct Marlow {
     pub popups: PopupManager,
 
     pub seat: Seat<Self>,
+
+    // IPC
+    pub ipc_listener: Option<UnixListener>,
+    pub ipc_clients: Vec<UnixStream>,
+    pub ipc_socket_path: Option<PathBuf>,
 }
 
 impl Marlow {
@@ -78,6 +85,9 @@ impl Marlow {
             data_device_state,
             popups,
             seat,
+            ipc_listener: None,
+            ipc_clients: Vec::new(),
+            ipc_socket_path: None,
         }
     }
 
