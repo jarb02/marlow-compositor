@@ -66,7 +66,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Optionally spawn clients: marlow-compositor -c foot -c foot
+    // Auto-spawn essential apps in KMS mode (full desktop session)
+    if !use_winit {
+        spawn_session_apps();
+    }
+
+    // Optionally spawn additional clients: marlow-compositor -c foot -c foot
     spawn_clients();
 
     event_loop.run(None, &mut state, |state| {
@@ -96,6 +101,30 @@ fn init_logging() {
     } else {
         tracing_subscriber::fmt().init();
     }
+}
+
+/// Auto-spawn essential session apps (KMS mode only).
+fn spawn_session_apps() {
+    // Waybar — top panel (optional, may not be installed)
+    match std::process::Command::new("waybar").spawn() {
+        Ok(_) => tracing::info!("Spawned waybar"),
+        Err(_) => tracing::info!("waybar not found — skipping panel"),
+    }
+
+    // Foot terminal — default terminal emulator
+    match std::process::Command::new("foot").spawn() {
+        Ok(_) => tracing::info!("Spawned foot terminal"),
+        Err(e) => tracing::warn!("Failed to spawn foot: {e}"),
+    }
+
+    // Welcome notification (delayed so notification daemon has time to start)
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        std::process::Command::new("notify-send")
+            .args(["Marlow OS", "Ready. Press Super+M to talk to Marlow."])
+            .spawn()
+            .ok();
+    });
 }
 
 /// Spawn client processes. Supports multiple -c flags:

@@ -15,6 +15,13 @@ use smithay::{
 
 use crate::Marlow;
 
+/// Compositor keybind actions.
+enum KeyAction {
+    Quit,
+    LaunchMarlow,
+    LaunchTerminal,
+}
+
 /// Counter for diagnostic logging (first N events only).
 static INPUT_LOG_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 const INPUT_LOG_MAX: u32 = 20;
@@ -34,24 +41,43 @@ impl Marlow {
                     tracing::info!("Input: key code={code:?} state={:?}", event.state());
                 }
 
-                let quit = self.user_seat.get_keyboard().unwrap().input::<bool, _>(
+                let action = self.user_seat.get_keyboard().unwrap().input::<KeyAction, _>(
                     self,
                     code,
                     event.state(),
                     serial,
                     time,
                     |_, modifiers, keysym| {
-                        if modifiers.ctrl && keysym.modified_sym() == keysyms::KEY_q.into() {
-                            FilterResult::Intercept(true)
+                        let sym = keysym.modified_sym();
+                        if modifiers.ctrl && sym == keysyms::KEY_q.into() {
+                            FilterResult::Intercept(KeyAction::Quit)
+                        } else if modifiers.logo && sym == keysyms::KEY_m.into() {
+                            FilterResult::Intercept(KeyAction::LaunchMarlow)
+                        } else if modifiers.logo && sym == keysyms::KEY_Return.into() {
+                            FilterResult::Intercept(KeyAction::LaunchTerminal)
                         } else {
                             FilterResult::Forward
                         }
                     },
                 );
 
-                if quit == Some(true) {
-                    tracing::info!("Ctrl+Q detected — stopping compositor");
-                    self.loop_signal.stop();
+                match action {
+                    Some(KeyAction::Quit) => {
+                        tracing::info!("Ctrl+Q detected — stopping compositor");
+                        self.loop_signal.stop();
+                    }
+                    Some(KeyAction::LaunchMarlow) => {
+                        tracing::info!("Super+M — launching Marlow launcher");
+                        std::process::Command::new("python3")
+                            .arg("/home/josemarlow/marlow/launcher.py")
+                            .spawn()
+                            .ok();
+                    }
+                    Some(KeyAction::LaunchTerminal) => {
+                        tracing::info!("Super+Return — launching terminal");
+                        std::process::Command::new("foot").spawn().ok();
+                    }
+                    _ => {}
                 }
             }
             InputEvent::PointerMotion { event, .. } => {
