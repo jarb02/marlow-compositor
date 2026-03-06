@@ -63,8 +63,12 @@ impl XdgShellHandler for Marlow {
             self.shadow_window_ids.insert(window_id);
             tracing::info!("Window {window_id} mapped to shadow_space (title={title:?})");
         } else {
-            self.user_space.map_element(window, (0, 0), false);
-            tracing::info!("Window {window_id} mapped to user_space (title={title:?})");
+            self.user_space.map_element(window.clone(), (0, 0), false);
+            let geo = window.geometry();
+            tracing::info!(
+                "Window {window_id} mapped to user_space (title={title:?}, app_id={app_id:?}, geometry={}x{}+{}+{})",
+                geo.size.w, geo.size.h, geo.loc.x, geo.loc.y
+            );
         }
 
         // Emit WindowCreated event

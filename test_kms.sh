@@ -6,7 +6,8 @@ cd ~/marlow-compositor || exit 1
 
 echo "=== Marlow Compositor KMS Test ==="
 echo "This test runs the compositor directly on DRM/KMS hardware."
-echo "You should see a dark gray background."
+echo "You should see a dark gray background with a white cursor."
+echo "Move the touchpad/mouse — cursor should follow."
 echo "Press Ctrl+Q to exit."
 echo ""
 
@@ -30,12 +31,30 @@ fi
 # Clean up any stale socket
 rm -f /run/user/$(id -u)/marlow-compositor.sock
 
+LOG=/tmp/marlow-kms.log
 echo "Starting compositor..."
-echo "Log: /tmp/marlow-kms.log"
+echo "Log: $LOG"
 echo ""
 
-# Run with -c foot to spawn a terminal
-cargo run -- -c foot 2>&1 | tee /tmp/marlow-kms.log
+# Run release build with foot terminal, log everything
+RUST_LOG=info cargo run --release -- -c foot 2>&1 | tee "$LOG"
 
 echo ""
-echo "Compositor exited. Log saved to /tmp/marlow-kms.log"
+echo "=== Compositor exited ==="
+echo ""
+echo "--- Last 30 lines of log ---"
+tail -30 "$LOG"
+echo ""
+echo "--- Input events ---"
+grep "Input:" "$LOG" | head -20
+echo ""
+echo "--- Render frames ---"
+grep "Render frame" "$LOG" | head -10
+echo ""
+echo "--- Window mapping ---"
+grep "Window.*mapped" "$LOG"
+echo ""
+echo "--- Errors/Warnings ---"
+grep -i "error\|warn\|failed" "$LOG" | grep -v "GL Extensions"
+echo ""
+echo "Full log saved to $LOG"

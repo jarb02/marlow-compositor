@@ -5,6 +5,7 @@
 //! as part of each output frame.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use drm::control::ModeTypeFlags;
@@ -37,7 +38,7 @@ use smithay::{
     },
     desktop::{space::SpaceRenderElements, Window},
     output::{Mode as WlMode, Output, PhysicalProperties, Subpixel},
-    reexports::calloop::{EventLoop, RegistrationToken},
+    reexports::calloop::{timer::{TimeoutAction, Timer}, EventLoop, RegistrationToken},
     reexports::input::Libinput,
     utils::{DeviceFd, Logical, Point, Scale, Transform},
 };
@@ -180,6 +181,7 @@ pub fn run_kms(event_loop: &mut EventLoop<Marlow>, state: &mut Marlow) -> Result
         drm_notifier,
         move |event, _metadata, state: &mut Marlow| match event {
             DrmEvent::VBlank(crtc) => {
+                VBLANK_PENDING.store(false, Ordering::Relaxed);
                 if let Some(gpu) = state.kms_backends.get_mut(&node) {
                     if let Some(surface) = gpu.surfaces.get_mut(&crtc) {
                         let _ = surface.drm_output.frame_submitted();
@@ -284,6 +286,28 @@ pub fn run_kms(event_loop: &mut EventLoop<Marlow>, state: &mut Marlow) -> Result
     for crtc in initial_crtcs {
         render_surface(state, drm_node, crtc);
     }
+
+    // 15. Fallback render timer — keeps the loop alive when VBlank isn't driving it.
+    // Fires every 16ms (~60fps). Only actually renders when no VBlank is pending.
+    let timer_node = drm_node;
+    let timer = Timer::from_duration(Duration::from_millis(16));
+    event_loop.handle().insert_source(
+        timer,
+        move |_instant, _metadata, state: &mut Marlow| {
+            // Only render if no VBlank-driven frame is in flight
+            if !VBLANK_PENDING.load(Ordering::Relaxed) {
+                let crtcs: Vec<_> = state
+                    .kms_backends
+                    .get(&timer_node)
+                    .map(|gpu| gpu.surfaces.keys().copied().collect())
+                    .unwrap_or_default();
+                for crtc in crtcs {
+                    render_surface(state, timer_node, crtc);
+                }
+            }
+            TimeoutAction::ToDuration(Duration::from_millis(16))
+        },
+    )?;
 
     tracing::info!("KMS backend initialized — compositor running on TTY");
     Ok(())
@@ -397,6 +421,13 @@ fn scan_connectors(
     Ok(())
 }
 
+/// Frame counter for diagnostic logging.
+static FRAME_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Whether a VBlank-driven render is currently pending (frame queued, waiting for VBlank).
+/// When false, the fallback timer drives rendering instead.
+static VBLANK_PENDING: AtomicBool = AtomicBool::new(false);
+
 /// Render a single output surface with software cursor.
 fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
     // Take renderer out of state temporarily to avoid borrow conflicts
@@ -489,13 +520,32 @@ fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
                 FrameFlags::empty(),
             );
 
+        // Diagnostic: log first 10 frames + every 300th frame
+        let frame_n = FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let window_count = state.user_space.elements().count();
+        if frame_n < 10 || frame_n % 300 == 0 {
+            tracing::info!(
+                "Render frame {frame_n}: {window_count} windows, cursor at ({:.0},{:.0}), {} elements",
+                pointer_location.x, pointer_location.y, elements.len()
+            );
+        }
+
         match render_result {
             Ok(result) => {
                 if !result.is_empty {
-                    if let Err(err) = surface.drm_output.queue_frame(()) {
-                        tracing::warn!("Failed to queue frame: {err:?}");
+                    // Frame has damage — queue it for VBlank presentation.
+                    match surface.drm_output.queue_frame(()) {
+                        Ok(()) => {
+                            VBLANK_PENDING.store(true, Ordering::Relaxed);
+                        }
+                        Err(err) => {
+                            tracing::warn!("Failed to queue frame: {err:?}");
+                        }
                     }
                 }
+                // If is_empty (no damage), don't queue — the fallback timer
+                // will retry in ~16ms, and when content changes (cursor moves,
+                // window maps), there will be damage and queue_frame will succeed.
             }
             Err(err) => {
                 tracing::warn!("Render error: {err:?}");

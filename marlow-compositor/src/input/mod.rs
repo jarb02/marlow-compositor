@@ -3,7 +3,7 @@ pub mod grabs;
 use smithay::{
     backend::input::{
         AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
+        KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
     },
     input::{
         keyboard::{FilterResult, keysyms},
@@ -15,6 +15,10 @@ use smithay::{
 
 use crate::Marlow;
 
+/// Counter for diagnostic logging (first N events only).
+static INPUT_LOG_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const INPUT_LOG_MAX: u32 = 20;
+
 impl Marlow {
     /// Process hardware input events — routed to user_seat only.
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
@@ -22,10 +26,17 @@ impl Marlow {
             InputEvent::Keyboard { event, .. } => {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
+                let code = event.key_code();
+
+                // Diagnostic: log first N key events
+                let n = INPUT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < INPUT_LOG_MAX {
+                    tracing::info!("Input: key code={code:?} state={:?}", event.state());
+                }
 
                 let quit = self.user_seat.get_keyboard().unwrap().input::<bool, _>(
                     self,
-                    event.key_code(),
+                    code,
                     event.state(),
                     serial,
                     time,
@@ -39,10 +50,52 @@ impl Marlow {
                 );
 
                 if quit == Some(true) {
+                    tracing::info!("Ctrl+Q detected — stopping compositor");
                     self.loop_signal.stop();
                 }
             }
-            InputEvent::PointerMotion { .. } => {}
+            InputEvent::PointerMotion { event, .. } => {
+                // Relative pointer motion (touchpad/mouse in KMS mode)
+                let pointer = self.user_seat.get_pointer().unwrap();
+                let mut pos = pointer.current_location();
+                let delta = event.delta();
+                pos += delta;
+
+                // Clamp to output bounds
+                if let Some(output) = self.user_space.outputs().next() {
+                    if let Some(output_geo) = self.user_space.output_geometry(output) {
+                        pos.x = pos.x.clamp(
+                            output_geo.loc.x as f64,
+                            (output_geo.loc.x + output_geo.size.w) as f64,
+                        );
+                        pos.y = pos.y.clamp(
+                            output_geo.loc.y as f64,
+                            (output_geo.loc.y + output_geo.size.h) as f64,
+                        );
+                    }
+                }
+
+                // Diagnostic: log first N motion events
+                let n = INPUT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < INPUT_LOG_MAX {
+                    tracing::info!("Input: pointer motion dx={:.1} dy={:.1} -> ({:.0},{:.0})",
+                        delta.x, delta.y, pos.x, pos.y);
+                }
+
+                let serial = SERIAL_COUNTER.next_serial();
+                let under = self.surface_under(pos);
+
+                pointer.motion(
+                    self,
+                    under,
+                    &MotionEvent {
+                        location: pos,
+                        serial,
+                        time: event.time_msec(),
+                    },
+                );
+                pointer.frame(self);
+            }
             InputEvent::PointerMotionAbsolute { event, .. } => {
                 let output = self.user_space.outputs().next().unwrap();
                 let output_geo = self.user_space.output_geometry(output).unwrap();
@@ -70,6 +123,13 @@ impl Marlow {
                 let serial = SERIAL_COUNTER.next_serial();
                 let button = event.button_code();
                 let button_state = event.state();
+
+                // Diagnostic: log button events
+                let n = INPUT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < INPUT_LOG_MAX {
+                    tracing::info!("Input: button={button} state={button_state:?} at ({:.0},{:.0})",
+                        pointer.current_location().x, pointer.current_location().y);
+                }
 
                 if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
                     if let Some((window, _loc)) = self
