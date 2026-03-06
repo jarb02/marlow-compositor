@@ -15,11 +15,21 @@ use smithay::reexports::{calloop::EventLoop, wayland_server::Display};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logging();
 
+    let args: Vec<String> = std::env::args().collect();
+    let use_winit = args.contains(&"--winit".to_string());
+
     let mut event_loop: EventLoop<Marlow> = EventLoop::try_new()?;
     let display: Display<Marlow> = Display::new()?;
     let mut state = Marlow::new(&mut event_loop, display);
 
-    backend::winit::init_winit(&mut event_loop, &mut state)?;
+    // Initialize backend
+    if use_winit {
+        tracing::info!("Starting with Winit backend (nested)");
+        backend::winit::init_winit(&mut event_loop, &mut state)?;
+    } else {
+        tracing::info!("Starting with KMS backend (TTY direct)");
+        backend::kms::run_kms(&mut event_loop, &mut state)?;
+    }
 
     // Start IPC server
     match ipc::init_ipc(&mut state) {

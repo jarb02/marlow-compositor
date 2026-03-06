@@ -7,9 +7,16 @@ edition = "2021"
 smithay = { git = "https://github.com/Smithay/smithay", features = [
     "wayland_frontend",
     "backend_winit",
+    "backend_drm",
+    "backend_gbm",
+    "backend_egl",
+    "backend_udev",
+    "backend_libinput",
+    "backend_session_libseat",
     "renderer_gl",
     "desktop",
 ] }
+smithay-drm-extras = { git = "https://github.com/Smithay/smithay" }
 calloop = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -22,3 +29,4 @@ libc = "0.2"
 image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 drm-fourcc = "2.2"
+drm = "0.14"

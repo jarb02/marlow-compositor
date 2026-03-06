@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::{ffi::OsString, sync::Arc};
@@ -85,6 +85,11 @@ pub struct Marlow {
 
     // Shadow frame timing (15 FPS = 66ms)
     pub last_shadow_frame: std::time::Instant,
+
+    // KMS backend state (only used when running in TTY mode)
+    pub kms_backends: HashMap<smithay::backend::drm::DrmNode, crate::backend::kms::GpuBackendHandle>,
+    pub kms_renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
+    pub kms_primary_node: Option<smithay::backend::drm::DrmNode>,
 }
 
 impl Marlow {
@@ -149,6 +154,9 @@ impl Marlow {
             shadow_pending_count: 0,
             output: None,
             last_shadow_frame: start_time,
+            kms_backends: HashMap::new(),
+            kms_renderer: None,
+            kms_primary_node: None,
         }
     }
 
