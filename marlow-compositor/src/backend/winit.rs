@@ -47,9 +47,13 @@ pub fn init_winit(
         Some((0, 0).into()),
     );
     output.set_preferred(mode);
-    state.space.map_output(&output, (0, 0));
+    state.user_space.map_output(&output, (0, 0));
+
+    // Store output reference for shadow frame callbacks
+    state.output = Some(output.clone());
 
     let mut damage_tracker = OutputDamageTracker::from_output(&output);
+    let mut shadow_damage_tracker = OutputDamageTracker::from_output(&output);
 
     event_loop
         .handle()
@@ -70,6 +74,7 @@ pub fn init_winit(
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
 
+                // Render user_space to screen
                 {
                     let (renderer, mut framebuffer) = backend.bind().unwrap();
                     smithay::desktop::space::render_output::<
@@ -83,7 +88,7 @@ pub fn init_winit(
                         &mut framebuffer,
                         1.0,
                         0,
-                        [&state.space],
+                        [&state.user_space],
                         &[],
                         &mut damage_tracker,
                         [0.1, 0.1, 0.1, 1.0],
@@ -99,7 +104,32 @@ pub fn init_winit(
                     capture_screenshot(renderer, &framebuffer, size.w, size.h, state);
                 }
 
-                state.space.elements().for_each(|window| {
+                // Shadow screenshot: render shadow_space to framebuffer, capture, don't submit.
+                // The next Redraw will overwrite this with user_space (full damage).
+                if state.shadow_screenshot_pending {
+                    let (renderer, mut framebuffer) = backend.bind().unwrap();
+                    smithay::desktop::space::render_output::<
+                        _,
+                        WaylandSurfaceRenderElement<GlesRenderer>,
+                        _,
+                        _,
+                    >(
+                        &output,
+                        renderer,
+                        &mut framebuffer,
+                        1.0,
+                        0,
+                        [&state.shadow_space],
+                        &[],
+                        &mut shadow_damage_tracker,
+                        [0.1, 0.1, 0.1, 1.0],
+                    )
+                    .unwrap();
+                    capture_shadow_screenshot(renderer, &framebuffer, size.w, size.h, state);
+                }
+
+                // Send frame callbacks to user_space windows
+                state.user_space.elements().for_each(|window| {
                     window.send_frame(
                         &output,
                         state.start_time.elapsed(),
@@ -108,8 +138,24 @@ pub fn init_winit(
                     )
                 });
 
-                state.space.refresh();
+                // Send frame callbacks to shadow_space windows (15 FPS throttled)
+                let now = std::time::Instant::now();
+                if now.duration_since(state.last_shadow_frame) >= Duration::from_millis(66) {
+                    state.last_shadow_frame = now;
+                    state.shadow_space.elements().for_each(|window| {
+                        window.send_frame(
+                            &output,
+                            state.start_time.elapsed(),
+                            Some(Duration::ZERO),
+                            |_, _| Some(output.clone()),
+                        )
+                    });
+                    state.shadow_space.refresh();
+                }
+
+                state.user_space.refresh();
                 state.popups.cleanup();
+                state.cleanup_dead_windows();
                 let _ = state.display_handle.flush_clients();
 
                 backend.window().request_redraw();
@@ -123,7 +169,7 @@ pub fn init_winit(
     Ok(())
 }
 
-/// Capture the current framebuffer as base64 PNG.
+/// Capture the current framebuffer as base64 PNG (user_space screenshot).
 fn capture_screenshot(
     renderer: &mut GlesRenderer,
     framebuffer: &GlesTarget<'_>,
@@ -169,4 +215,48 @@ fn capture_screenshot(
         Err(e) => tracing::error!("Screenshot copy_framebuffer failed: {e:?}"),
     }
     state.screenshot_pending = false;
+}
+
+/// Capture shadow_space framebuffer as base64 PNG.
+fn capture_shadow_screenshot(
+    renderer: &mut GlesRenderer,
+    framebuffer: &GlesTarget<'_>,
+    width: i32,
+    height: i32,
+    state: &mut Marlow,
+) {
+    use base64::Engine;
+    use smithay::backend::allocator::Fourcc;
+
+    let region = Rectangle::new((0, 0).into(), (width, height).into());
+    match renderer.copy_framebuffer(framebuffer, region, Fourcc::Abgr8888) {
+        Ok(mapping) => match renderer.map_texture(&mapping) {
+            Ok(pixels) => {
+                let rgba = pixels.to_vec();
+                if let Some(img) =
+                    image::RgbaImage::from_raw(width as u32, height as u32, rgba)
+                {
+                    let mut png_buf = Vec::new();
+                    let mut cursor = std::io::Cursor::new(&mut png_buf);
+                    if img
+                        .write_to(&mut cursor, image::ImageFormat::Png)
+                        .is_ok()
+                    {
+                        let b64 = base64::engine::general_purpose::STANDARD
+                            .encode(&png_buf);
+                        state.shadow_screenshot_data = Some(b64);
+                        tracing::info!(
+                            "Shadow screenshot captured: {}x{}, {} bytes PNG",
+                            width,
+                            height,
+                            png_buf.len()
+                        );
+                    }
+                }
+            }
+            Err(e) => tracing::error!("Shadow screenshot map_texture failed: {e:?}"),
+        },
+        Err(e) => tracing::error!("Shadow screenshot copy_framebuffer failed: {e:?}"),
+    }
+    state.shadow_screenshot_pending = false;
 }

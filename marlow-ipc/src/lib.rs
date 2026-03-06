@@ -16,6 +16,8 @@ pub enum Request {
     RequestScreenshot { window_id: Option<u64> },
     MoveToShadow { window_id: u64 },
     MoveToUser { window_id: u64 },
+    GetShadowWindows,
+    LaunchInShadow { command: String },
     Subscribe { events: Vec<String> },
     GetSeatStatus,
     Ping,
@@ -43,6 +45,8 @@ pub enum Event {
     WindowMoved { window_id: u64, x: i32, y: i32, width: i32, height: i32 },
     UserInputDetected { input_type: String },
     ConflictDetected { window_id: u64, reason: String },
+    WindowMovedToShadow { window_id: u64 },
+    WindowMovedToUser { window_id: u64 },
     Pong,
 }
 
@@ -116,5 +120,22 @@ mod tests {
         let mut cursor = Cursor::new(buf);
         let decoded: Response = read_message(&mut cursor).unwrap();
         assert!(matches!(decoded, Response::Ok { .. }));
+    }
+
+    #[test]
+    fn roundtrip_shadow_commands() {
+        let req = Request::LaunchInShadow { command: "foot".to_string() };
+        let mut buf = Vec::new();
+        write_message(&mut buf, &req).unwrap();
+        let mut cursor = Cursor::new(buf);
+        let decoded: Request = read_message(&mut cursor).unwrap();
+        assert!(matches!(decoded, Request::LaunchInShadow { .. }));
+
+        let req2 = Request::GetShadowWindows;
+        let mut buf2 = Vec::new();
+        write_message(&mut buf2, &req2).unwrap();
+        let mut cursor2 = Cursor::new(buf2);
+        let decoded2: Request = read_message(&mut cursor2).unwrap();
+        assert!(matches!(decoded2, Request::GetShadowWindows));
     }
 }

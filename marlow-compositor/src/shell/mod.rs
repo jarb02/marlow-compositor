@@ -36,9 +36,8 @@ impl XdgShellHandler for Marlow {
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
         let window = Window::new_wayland_window(surface.clone());
-        self.space.map_element(window, (0, 0), false);
 
-        // Emit WindowCreated event for IPC subscribers
+        // Extract metadata
         let wl_surface = surface.wl_surface();
         let (title, app_id) = with_states(wl_surface, |states| {
             let data = states
@@ -53,7 +52,22 @@ impl XdgShellHandler for Marlow {
                 None => (String::new(), String::new()),
             }
         });
-        let window_id = self.space.elements().count().saturating_sub(1) as u64;
+
+        // Register with stable ID
+        let window_id = self.register_window(window.clone());
+
+        // Route to shadow_space if there are pending shadow launches
+        if self.shadow_pending_count > 0 {
+            self.shadow_pending_count -= 1;
+            self.shadow_space.map_element(window, (0, 0), false);
+            self.shadow_window_ids.insert(window_id);
+            tracing::info!("Window {window_id} mapped to shadow_space (title={title:?})");
+        } else {
+            self.user_space.map_element(window, (0, 0), false);
+            tracing::info!("Window {window_id} mapped to user_space (title={title:?})");
+        }
+
+        // Emit WindowCreated event
         self.event_queue.push(marlow_ipc::Event::WindowCreated {
             window_id,
             title,
@@ -93,12 +107,12 @@ impl XdgShellHandler for Marlow {
         if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
             let pointer = seat.get_pointer().unwrap();
             let window = self
-                .space
+                .user_space
                 .elements()
                 .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
                 .unwrap()
                 .clone();
-            let initial_window_location = self.space.element_location(&window).unwrap();
+            let initial_window_location = self.user_space.element_location(&window).unwrap();
 
             let grab = MoveSurfaceGrab {
                 start_data,
@@ -123,12 +137,12 @@ impl XdgShellHandler for Marlow {
         if let Some(start_data) = check_grab(&seat, wl_surface, serial) {
             let pointer = seat.get_pointer().unwrap();
             let window = self
-                .space
+                .user_space
                 .elements()
                 .find(|w| w.toplevel().unwrap().wl_surface() == wl_surface)
                 .unwrap()
                 .clone();
-            let initial_window_location = self.space.element_location(&window).unwrap();
+            let initial_window_location = self.user_space.element_location(&window).unwrap();
             let initial_window_size = window.geometry().size;
 
             surface.with_pending_state(|state| {
@@ -176,15 +190,23 @@ fn check_grab(
 /// Should be called on `WlSurface::commit`
 pub fn handle_commit(
     popups: &mut PopupManager,
-    space: &Space<Window>,
+    user_space: &Space<Window>,
+    shadow_space: &Space<Window>,
     surface: &WlSurface,
 ) {
-    // Handle toplevel commits
-    if let Some(window) = space
+    // Handle toplevel commits — check both spaces
+    let window = user_space
         .elements()
         .find(|w| w.toplevel().unwrap().wl_surface() == surface)
         .cloned()
-    {
+        .or_else(|| {
+            shadow_space
+                .elements()
+                .find(|w| w.toplevel().unwrap().wl_surface() == surface)
+                .cloned()
+        });
+
+    if let Some(window) = window {
         let initial_configure_sent = with_states(surface, |states| {
             states
                 .data_map
@@ -220,16 +242,16 @@ impl Marlow {
             return;
         };
         let Some(window) = self
-            .space
+            .user_space
             .elements()
             .find(|w| w.toplevel().unwrap().wl_surface() == &root)
         else {
             return;
         };
 
-        let output = self.space.outputs().next().unwrap();
-        let output_geo = self.space.output_geometry(output).unwrap();
-        let window_geo = self.space.element_geometry(window).unwrap();
+        let output = self.user_space.outputs().next().unwrap();
+        let output_geo = self.user_space.output_geometry(output).unwrap();
+        let window_geo = self.user_space.element_geometry(window).unwrap();
 
         let mut target = output_geo;
         target.loc -= get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()));

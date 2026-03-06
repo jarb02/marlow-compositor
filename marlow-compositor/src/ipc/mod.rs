@@ -3,6 +3,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 
 use marlow_ipc::{write_message, Event, Request, Response, WindowInfo};
+use smithay::utils::IsAlive;
 use serde_json::json;
 use smithay::backend::input::{ButtonState, KeyState};
 use smithay::input::keyboard::FilterResult;
@@ -141,6 +142,46 @@ fn try_read_request(stream: &mut UnixStream) -> io::Result<Option<Request>> {
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
+/// Helper: build WindowInfo from a registry entry.
+fn build_window_info(state: &Marlow, id: u64) -> Option<WindowInfo> {
+    let window = state.find_window_by_id(id)?;
+    let space = state.window_space(id);
+    let geo = space.element_geometry(window).unwrap_or_default();
+    let toplevel = window.toplevel().unwrap();
+    let wl_surface = toplevel.wl_surface();
+
+    let (title, app_id) = smithay::wayland::compositor::with_states(wl_surface, |states| {
+        let data = states
+            .data_map
+            .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
+            .map(|d| d.lock().unwrap());
+        match data {
+            Some(d) => (
+                d.title.clone().unwrap_or_default(),
+                d.app_id.clone().unwrap_or_default(),
+            ),
+            None => (String::new(), String::new()),
+        }
+    });
+
+    let focused = state
+        .user_seat
+        .get_keyboard()
+        .and_then(|kb| kb.current_focus().map(|focus| focus == *wl_surface))
+        .unwrap_or(false);
+
+    Some(WindowInfo {
+        window_id: id,
+        title,
+        app_id,
+        x: geo.loc.x,
+        y: geo.loc.y,
+        width: geo.size.w,
+        height: geo.size.h,
+        focused,
+    })
+}
+
 /// Dispatch a request.
 fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Response {
     match request {
@@ -149,49 +190,25 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
         },
 
         Request::ListWindows => {
+            // Only user_space windows (non-shadow)
             let windows: Vec<WindowInfo> = state
-                .space
-                .elements()
-                .enumerate()
-                .map(|(i, window)| {
-                    let geo = state.space.element_geometry(window).unwrap_or_default();
-                    let toplevel = window.toplevel().unwrap();
-                    let wl_surface = toplevel.wl_surface();
+                .window_registry
+                .iter()
+                .filter(|(id, w)| !state.shadow_window_ids.contains(id) && w.alive())
+                .filter_map(|(id, _)| build_window_info(state, *id))
+                .collect();
 
-                    let (title, app_id) = smithay::wayland::compositor::with_states(
-                        wl_surface,
-                        |states| {
-                            let data = states
-                                .data_map
-                                .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
-                                .map(|d| d.lock().unwrap());
-                            match data {
-                                Some(d) => (
-                                    d.title.clone().unwrap_or_default(),
-                                    d.app_id.clone().unwrap_or_default(),
-                                ),
-                                None => (String::new(), String::new()),
-                            }
-                        },
-                    );
+            Response::Ok {
+                data: serde_json::to_value(&windows).unwrap_or(json!([])),
+            }
+        }
 
-                    let focused = state
-                        .user_seat
-                        .get_keyboard()
-                        .and_then(|kb| kb.current_focus().map(|focus| focus == *wl_surface))
-                        .unwrap_or(false);
-
-                    WindowInfo {
-                        window_id: i as u64,
-                        title,
-                        app_id,
-                        x: geo.loc.x,
-                        y: geo.loc.y,
-                        width: geo.size.w,
-                        height: geo.size.h,
-                        focused,
-                    }
-                })
+        Request::GetShadowWindows => {
+            let windows: Vec<WindowInfo> = state
+                .window_registry
+                .iter()
+                .filter(|(id, w)| state.shadow_window_ids.contains(id) && w.alive())
+                .filter_map(|(id, _)| build_window_info(state, *id))
                 .collect();
 
             Response::Ok {
@@ -200,11 +217,12 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
         }
 
         Request::FocusWindow { window_id } => {
-            let window = state.space.elements().nth(window_id as usize).cloned();
+            let window = state.find_window_by_id(window_id).cloned();
 
             match window {
                 Some(w) => {
-                    state.space.raise_element(&w, true);
+                    let space = state.window_space_mut(window_id);
+                    space.raise_element(&w, true);
                     let serial = SERIAL_COUNTER.next_serial();
                     if let Some(keyboard) = state.agent_seat.get_keyboard() {
                         keyboard.set_focus(
@@ -213,9 +231,17 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
                             serial,
                         );
                     }
-                    state.space.elements().for_each(|win| {
-                        win.toplevel().unwrap().send_pending_configure();
-                    });
+                    // Send pending configure to all windows in the relevant space
+                    let is_shadow = state.is_shadow(window_id);
+                    if is_shadow {
+                        state.shadow_space.elements().for_each(|win| {
+                            win.toplevel().unwrap().send_pending_configure();
+                        });
+                    } else {
+                        state.user_space.elements().for_each(|win| {
+                            win.toplevel().unwrap().send_pending_configure();
+                        });
+                    }
                     Response::Ok {
                         data: json!({"focused": window_id}),
                     }
@@ -227,51 +253,10 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
         }
 
         Request::GetWindowInfo { window_id } => {
-            let window = state.space.elements().nth(window_id as usize);
-            match window {
-                Some(w) => {
-                    let geo = state.space.element_geometry(w).unwrap_or_default();
-                    let toplevel = w.toplevel().unwrap();
-                    let wl_surface = toplevel.wl_surface();
-
-                    let (title, app_id) = smithay::wayland::compositor::with_states(
-                        wl_surface,
-                        |states| {
-                            let data = states
-                                .data_map
-                                .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
-                                .map(|d| d.lock().unwrap());
-                            match data {
-                                Some(d) => (
-                                    d.title.clone().unwrap_or_default(),
-                                    d.app_id.clone().unwrap_or_default(),
-                                ),
-                                None => (String::new(), String::new()),
-                            }
-                        },
-                    );
-
-                    let focused = state
-                        .user_seat
-                        .get_keyboard()
-                        .and_then(|kb| kb.current_focus().map(|focus| focus == *wl_surface))
-                        .unwrap_or(false);
-
-                    let info = WindowInfo {
-                        window_id,
-                        title,
-                        app_id,
-                        x: geo.loc.x,
-                        y: geo.loc.y,
-                        width: geo.size.w,
-                        height: geo.size.h,
-                        focused,
-                    };
-
-                    Response::Ok {
-                        data: serde_json::to_value(&info).unwrap_or(json!(null)),
-                    }
-                }
+            match build_window_info(state, window_id) {
+                Some(info) => Response::Ok {
+                    data: serde_json::to_value(&info).unwrap_or(json!(null)),
+                },
                 None => Response::Error {
                     message: format!("Window {window_id} not found"),
                 },
@@ -306,18 +291,105 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
 
         // ─── Screenshot ───
 
-        Request::RequestScreenshot { window_id: _ } => {
-            // If screenshot data is ready from previous capture, return it
+        Request::RequestScreenshot { window_id } => {
+            // Check if this is a shadow window screenshot request
+            if let Some(wid) = window_id {
+                if state.is_shadow(wid) {
+                    // Shadow screenshot
+                    if let Some(data) = state.shadow_screenshot_data.take() {
+                        return Response::Ok {
+                            data: json!({"image": data, "format": "png", "encoding": "base64"}),
+                        };
+                    } else {
+                        state.shadow_screenshot_pending = true;
+                        state.shadow_screenshot_window_id = Some(wid);
+                        return Response::Ok {
+                            data: json!({"pending": true}),
+                        };
+                    }
+                }
+            }
+
+            // Regular (user_space) screenshot
             if let Some(data) = state.screenshot_data.take() {
                 Response::Ok {
                     data: json!({"image": data, "format": "png", "encoding": "base64"}),
                 }
             } else {
-                // Request capture on next frame
                 state.screenshot_pending = true;
                 Response::Ok {
                     data: json!({"pending": true}),
                 }
+            }
+        }
+
+        // ─── Shadow Mode ───
+
+        Request::LaunchInShadow { command } => {
+            state.shadow_pending_count += 1;
+            tracing::info!("LaunchInShadow: '{command}', pending_count={}", state.shadow_pending_count);
+
+            match std::process::Command::new(&command).spawn() {
+                Ok(child) => {
+                    tracing::info!("LaunchInShadow: spawned PID {}", child.id());
+                    Response::Ok {
+                        data: json!({"launched": command, "pid": child.id()}),
+                    }
+                }
+                Err(e) => {
+                    state.shadow_pending_count -= 1;
+                    Response::Error {
+                        message: format!("Failed to launch '{command}': {e}"),
+                    }
+                }
+            }
+        }
+
+        Request::MoveToShadow { window_id } => {
+            let window = state.find_window_by_id(window_id).cloned();
+            match window {
+                Some(w) if !state.is_shadow(window_id) => {
+                    state.user_space.unmap_elem(&w);
+                    state.shadow_space.map_element(w, (0, 0), false);
+                    state.shadow_window_ids.insert(window_id);
+                    tracing::info!("Window {window_id} moved to shadow_space");
+                    state.event_queue.push(marlow_ipc::Event::WindowMovedToShadow {
+                        window_id,
+                    });
+                    Response::Ok {
+                        data: json!({"moved_to_shadow": window_id}),
+                    }
+                }
+                Some(_) => Response::Error {
+                    message: format!("Window {window_id} is already in shadow"),
+                },
+                None => Response::Error {
+                    message: format!("Window {window_id} not found"),
+                },
+            }
+        }
+
+        Request::MoveToUser { window_id } => {
+            let window = state.find_window_by_id(window_id).cloned();
+            match window {
+                Some(w) if state.is_shadow(window_id) => {
+                    state.shadow_space.unmap_elem(&w);
+                    state.user_space.map_element(w, (0, 0), false);
+                    state.shadow_window_ids.remove(&window_id);
+                    tracing::info!("Window {window_id} moved to user_space (promoted)");
+                    state.event_queue.push(marlow_ipc::Event::WindowMovedToUser {
+                        window_id,
+                    });
+                    Response::Ok {
+                        data: json!({"moved_to_user": window_id}),
+                    }
+                }
+                Some(_) => Response::Error {
+                    message: format!("Window {window_id} is already in user_space"),
+                },
+                None => Response::Error {
+                    message: format!("Window {window_id} not found"),
+                },
             }
         }
 
@@ -350,19 +422,18 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
                 && agent_focus.is_some()
                 && user_focus == agent_focus;
 
+            let shadow_count = state.shadow_window_ids.len();
+
             Response::Ok {
                 data: json!({
                     "user_focus": user_focus,
                     "agent_focus": agent_focus,
                     "conflict": conflict,
                     "wayland_display": state.socket_name.to_string_lossy(),
+                    "shadow_count": shadow_count,
                 }),
             }
         }
-
-        Request::MoveToShadow { .. } | Request::MoveToUser { .. } => Response::Error {
-            message: "Shadow mode not implemented yet".to_string(),
-        },
     }
 }
 
@@ -466,7 +537,7 @@ fn handle_send_text(state: &mut Marlow, text: &str) -> Response {
 
 /// Send a mouse click at (x, y) relative to the window.
 fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button: u32) -> Response {
-    let window = state.space.elements().nth(window_id as usize).cloned();
+    let window = state.find_window_by_id(window_id).cloned();
 
     let window = match window {
         Some(w) => w,
@@ -477,8 +548,8 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
         }
     };
 
-    let window_loc = state
-        .space
+    let space = state.window_space(window_id);
+    let window_loc = space
         .element_location(&window)
         .unwrap_or_default()
         .to_f64();
@@ -512,7 +583,8 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
     // Focus the window on click
     let serial = SERIAL_COUNTER.next_serial();
     let keyboard = state.agent_seat.get_keyboard().unwrap();
-    state.space.raise_element(&window, true);
+    let space = state.window_space_mut(window_id);
+    space.raise_element(&window, true);
     keyboard.set_focus(
         state,
         Some(window.toplevel().unwrap().wl_surface().clone()),

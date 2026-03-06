@@ -34,8 +34,15 @@ impl CompositorHandler for Marlow {
             while let Some(parent) = smithay::wayland::compositor::get_parent(&root) {
                 root = parent;
             }
+            // Check both spaces for the window
             if let Some(window) = self
-                .space
+                .user_space
+                .elements()
+                .find(|w| w.toplevel().unwrap().wl_surface() == &root)
+            {
+                window.on_commit();
+            } else if let Some(window) = self
+                .shadow_space
                 .elements()
                 .find(|w| w.toplevel().unwrap().wl_surface() == &root)
             {
@@ -43,8 +50,8 @@ impl CompositorHandler for Marlow {
             }
         };
 
-        crate::shell::handle_commit(&mut self.popups, &self.space, surface);
-        crate::input::grabs::resize_grab::handle_commit(&mut self.space, surface);
+        crate::shell::handle_commit(&mut self.popups, &self.user_space, &self.shadow_space, surface);
+        crate::input::grabs::resize_grab::handle_commit(&mut self.user_space, surface);
     }
 }
 
@@ -101,12 +108,7 @@ impl SeatHandler for Marlow {
 
         // Emit WindowFocused event for IPC subscribers
         if let Some(surface) = focused {
-            if let Some((idx, _window)) = self
-                .space
-                .elements()
-                .enumerate()
-                .find(|(_, w)| w.toplevel().unwrap().wl_surface() == surface)
-            {
+            if let Some(window_id) = self.surface_to_window_id(surface) {
                 let title = smithay::wayland::compositor::with_states(surface, |states| {
                     states
                         .data_map
@@ -116,7 +118,7 @@ impl SeatHandler for Marlow {
                         .unwrap_or_default()
                 });
                 self.event_queue.push(marlow_ipc::Event::WindowFocused {
-                    window_id: idx as u64,
+                    window_id,
                     title,
                 });
             }
