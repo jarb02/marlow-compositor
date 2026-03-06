@@ -92,9 +92,12 @@ impl SeatHandler for Marlow {
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
-        let dh = &self.display_handle;
-        let client = focused.and_then(|s| dh.get_client(s.id()).ok());
-        set_data_device_focus(dh, seat, client);
+        // Data device focus only for the user seat (clipboard/DnD)
+        if seat.name() == "user" {
+            let dh = &self.display_handle;
+            let client = focused.and_then(|s| dh.get_client(s.id()).ok());
+            set_data_device_focus(dh, seat, client);
+        }
 
         // Emit WindowFocused event for IPC subscribers
         if let Some(surface) = focused {

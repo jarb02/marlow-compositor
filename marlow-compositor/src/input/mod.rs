@@ -16,13 +16,14 @@ use smithay::{
 use crate::Marlow;
 
 impl Marlow {
+    /// Process hardware input events — routed to user_seat only.
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
         match event {
             InputEvent::Keyboard { event, .. } => {
                 let serial = SERIAL_COUNTER.next_serial();
                 let time = Event::time_msec(&event);
 
-                let quit = self.seat.get_keyboard().unwrap().input::<bool, _>(
+                let quit = self.user_seat.get_keyboard().unwrap().input::<bool, _>(
                     self,
                     event.key_code(),
                     event.state(),
@@ -49,7 +50,7 @@ impl Marlow {
                     event.position_transformed(output_geo.size) + output_geo.loc.to_f64();
 
                 let serial = SERIAL_COUNTER.next_serial();
-                let pointer = self.seat.get_pointer().unwrap();
+                let pointer = self.user_seat.get_pointer().unwrap();
                 let under = self.surface_under(pos);
 
                 pointer.motion(
@@ -64,8 +65,8 @@ impl Marlow {
                 pointer.frame(self);
             }
             InputEvent::PointerButton { event, .. } => {
-                let pointer = self.seat.get_pointer().unwrap();
-                let keyboard = self.seat.get_keyboard().unwrap();
+                let pointer = self.user_seat.get_pointer().unwrap();
+                let keyboard = self.user_seat.get_keyboard().unwrap();
                 let serial = SERIAL_COUNTER.next_serial();
                 let button = event.button_code();
                 let button_state = event.state();
@@ -76,12 +77,39 @@ impl Marlow {
                         .element_under(pointer.current_location())
                         .map(|(w, l)| (w.clone(), l))
                     {
+                        let surface = window.toplevel().unwrap().wl_surface().clone();
                         self.space.raise_element(&window, true);
                         keyboard.set_focus(
                             self,
-                            Some(window.toplevel().unwrap().wl_surface().clone()),
+                            Some(surface.clone()),
                             serial,
                         );
+
+                        // Conflict check: if agent is focused on this window, agent loses focus
+                        let agent_kb = self.agent_seat.get_keyboard().unwrap();
+                        if let Some(agent_focus) = agent_kb.current_focus() {
+                            if self.seat_arbiter.check_conflict(&surface, Some(&agent_focus)) {
+                                let window_id = self
+                                    .surface_to_window_id(&surface)
+                                    .unwrap_or(u64::MAX);
+                                // Clear agent focus — user takes over
+                                agent_kb.set_focus(
+                                    self,
+                                    Option::<WlSurface>::None,
+                                    serial,
+                                );
+                                self.event_queue.push(
+                                    marlow_ipc::Event::ConflictDetected {
+                                        window_id,
+                                        reason: "user_override".to_string(),
+                                    },
+                                );
+                                tracing::info!(
+                                    "Seat conflict: user overrides agent on window {window_id}"
+                                );
+                            }
+                        }
+
                         self.space.elements().for_each(|window| {
                             window.toplevel().unwrap().send_pending_configure();
                         });
@@ -144,7 +172,7 @@ impl Marlow {
                     }
                 }
 
-                let pointer = self.seat.get_pointer().unwrap();
+                let pointer = self.user_seat.get_pointer().unwrap();
                 pointer.axis(self, frame);
                 pointer.frame(self);
             }

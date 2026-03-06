@@ -3,6 +3,7 @@
 mod backend;
 mod input;
 mod ipc;
+mod seat;
 mod shell;
 mod wayland;
 
@@ -31,8 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set WAYLAND_DISPLAY so child processes connect to us
     std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
 
-    // Optionally spawn a client: marlow-compositor -c foot
-    spawn_client();
+    // Optionally spawn clients: marlow-compositor -c foot -c foot
+    spawn_clients();
 
     event_loop.run(None, &mut state, |state| {
         ipc::poll_ipc(state);
@@ -54,15 +55,19 @@ fn init_logging() {
     }
 }
 
-fn spawn_client() {
-    let mut args = std::env::args().skip(1);
-    let flag = args.next();
-    let arg = args.next();
-
-    match (flag.as_deref(), arg) {
-        (Some("-c") | Some("--command"), Some(command)) => {
+/// Spawn client processes. Supports multiple -c flags:
+///   marlow-compositor -c foot -c foot
+fn spawn_clients() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut i = 0;
+    while i < args.len() {
+        if (args[i] == "-c" || args[i] == "--command") && i + 1 < args.len() {
+            let command = &args[i + 1];
+            tracing::info!("Spawning client: {command}");
             std::process::Command::new(command).spawn().ok();
+            i += 2;
+        } else {
+            i += 1;
         }
-        _ => {}
     }
 }

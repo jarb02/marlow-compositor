@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::{collections::HashSet, ffi::OsString, sync::Arc};
+use std::{ffi::OsString, sync::Arc};
 
 use smithay::{
     desktop::{PopupManager, Space, Window, WindowSurfaceType},
@@ -24,6 +25,8 @@ use smithay::{
     },
 };
 
+use crate::seat::arbiter::SeatArbiter;
+
 pub struct Marlow {
     pub start_time: std::time::Instant,
     pub socket_name: OsString,
@@ -41,7 +44,10 @@ pub struct Marlow {
     pub data_device_state: DataDeviceState,
     pub popups: PopupManager,
 
-    pub seat: Seat<Self>,
+    // Dual-seat: user (hardware) + agent (IPC)
+    pub user_seat: Seat<Self>,
+    pub agent_seat: Seat<Self>,
+    pub seat_arbiter: SeatArbiter,
 
     // IPC
     pub ipc_listener: Option<UnixListener>,
@@ -70,10 +76,18 @@ impl Marlow {
         let data_device_state = DataDeviceState::new::<Self>(&dh);
 
         let mut seat_state = SeatState::new();
-        let mut seat: Seat<Self> = seat_state.new_wl_seat(&dh, "marlow");
 
-        seat.add_keyboard(Default::default(), 200, 25).unwrap();
-        seat.add_pointer();
+        // User seat: receives hardware input (libinput/winit events)
+        let mut user_seat: Seat<Self> = seat_state.new_wl_seat(&dh, "user");
+        user_seat.add_keyboard(Default::default(), 200, 25).unwrap();
+        user_seat.add_pointer();
+
+        // Agent seat: receives IPC commands from the Python agent.
+        // Registered as wl_seat global because the Wayland protocol requires
+        // clients to bind a seat before receiving keyboard/pointer events.
+        let mut agent_seat: Seat<Self> = seat_state.new_wl_seat(&dh, "marlow-agent");
+        agent_seat.add_keyboard(Default::default(), 200, 25).unwrap();
+        agent_seat.add_pointer();
 
         let space = Space::default();
         let socket_name = Self::init_wayland_listener(display, event_loop);
@@ -92,7 +106,9 @@ impl Marlow {
             seat_state,
             data_device_state,
             popups,
-            seat,
+            user_seat,
+            agent_seat,
+            seat_arbiter: SeatArbiter::new(),
             ipc_listener: None,
             ipc_clients: Vec::new(),
             ipc_socket_path: None,
@@ -138,6 +154,17 @@ impl Marlow {
             window
                 .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
                 .map(|(s, p)| (s, (p + location).to_f64()))
+        })
+    }
+
+    /// Map a WlSurface to a window index in the space.
+    pub fn surface_to_window_id(&self, surface: &WlSurface) -> Option<u64> {
+        self.space.elements().enumerate().find_map(|(i, w)| {
+            if w.toplevel().unwrap().wl_surface() == surface {
+                Some(i as u64)
+            } else {
+                None
+            }
         })
     }
 }

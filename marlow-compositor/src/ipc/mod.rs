@@ -176,7 +176,7 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
                     );
 
                     let focused = state
-                        .seat
+                        .user_seat
                         .get_keyboard()
                         .and_then(|kb| kb.current_focus().map(|focus| focus == *wl_surface))
                         .unwrap_or(false);
@@ -206,7 +206,7 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
                 Some(w) => {
                     state.space.raise_element(&w, true);
                     let serial = SERIAL_COUNTER.next_serial();
-                    if let Some(keyboard) = state.seat.get_keyboard() {
+                    if let Some(keyboard) = state.agent_seat.get_keyboard() {
                         keyboard.set_focus(
                             state,
                             Some(w.toplevel().unwrap().wl_surface().clone()),
@@ -252,7 +252,7 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
                     );
 
                     let focused = state
-                        .seat
+                        .user_seat
                         .get_keyboard()
                         .and_then(|kb| kb.current_focus().map(|focus| focus == *wl_surface))
                         .unwrap_or(false);
@@ -331,6 +331,35 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
             }
         }
 
+        // ─── Seat status ───
+
+        Request::GetSeatStatus => {
+            let user_focus = state
+                .user_seat
+                .get_keyboard()
+                .and_then(|kb| kb.current_focus())
+                .and_then(|surface| state.surface_to_window_id(&surface));
+
+            let agent_focus = state
+                .agent_seat
+                .get_keyboard()
+                .and_then(|kb| kb.current_focus())
+                .and_then(|surface| state.surface_to_window_id(&surface));
+
+            let conflict = user_focus.is_some()
+                && agent_focus.is_some()
+                && user_focus == agent_focus;
+
+            Response::Ok {
+                data: json!({
+                    "user_focus": user_focus,
+                    "agent_focus": agent_focus,
+                    "conflict": conflict,
+                    "wayland_display": state.socket_name.to_string_lossy(),
+                }),
+            }
+        }
+
         Request::MoveToShadow { .. } | Request::MoveToUser { .. } => Response::Error {
             message: "Shadow mode not implemented yet".to_string(),
         },
@@ -341,7 +370,7 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
 
 /// Send a single key press/release to the focused client.
 fn handle_send_key(state: &mut Marlow, key: u32, pressed: bool) -> Response {
-    let keyboard = match state.seat.get_keyboard() {
+    let keyboard = match state.agent_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
             return Response::Error {
@@ -369,7 +398,7 @@ fn handle_send_key(state: &mut Marlow, key: u32, pressed: bool) -> Response {
 
 /// Type a string by synthesizing key press/release for each character.
 fn handle_send_text(state: &mut Marlow, text: &str) -> Response {
-    let keyboard = match state.seat.get_keyboard() {
+    let keyboard = match state.agent_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
             return Response::Error {
@@ -455,7 +484,7 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
         .to_f64();
     let abs_pos = (window_loc.x + x, window_loc.y + y).into();
 
-    let pointer = state.seat.get_pointer().unwrap();
+    let pointer = state.agent_seat.get_pointer().unwrap();
     let under = state.surface_under(abs_pos);
     let time = state.start_time.elapsed().as_millis() as u32;
 
@@ -482,7 +511,7 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
 
     // Focus the window on click
     let serial = SERIAL_COUNTER.next_serial();
-    let keyboard = state.seat.get_keyboard().unwrap();
+    let keyboard = state.agent_seat.get_keyboard().unwrap();
     state.space.raise_element(&window, true);
     keyboard.set_focus(
         state,
@@ -523,7 +552,7 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
 
 /// Send a hotkey combination (modifiers + key).
 fn handle_send_hotkey(state: &mut Marlow, modifiers: &[String], key: &str) -> Response {
-    let keyboard = match state.seat.get_keyboard() {
+    let keyboard = match state.agent_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
             return Response::Error {

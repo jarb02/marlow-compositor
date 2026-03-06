@@ -17,6 +17,7 @@ pub enum Request {
     MoveToShadow { window_id: u64 },
     MoveToUser { window_id: u64 },
     Subscribe { events: Vec<String> },
+    GetSeatStatus,
     Ping,
 }
 
@@ -41,6 +42,7 @@ pub enum Event {
     WindowFocused { window_id: u64, title: String },
     WindowMoved { window_id: u64, x: i32, y: i32, width: i32, height: i32 },
     UserInputDetected { input_type: String },
+    ConflictDetected { window_id: u64, reason: String },
     Pong,
 }
 
