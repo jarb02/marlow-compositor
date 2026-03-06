@@ -1,7 +1,8 @@
 //! KMS/DRM backend — runs directly on TTY hardware without a parent compositor.
 //!
 //! Uses libseat for session management, udev for GPU detection, DRM/GBM for
-//! rendering, and libinput for keyboard/mouse input.
+//! rendering, and libinput for keyboard/mouse input. Software cursor rendered
+//! as part of each output frame.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -10,7 +11,10 @@ use drm::control::ModeTypeFlags;
 
 use smithay::{
     backend::{
-        allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
+        allocator::{
+            gbm::{GbmAllocator, GbmBufferFlags, GbmDevice},
+            Fourcc,
+        },
         drm::{
             compositor::FrameFlags,
             exporter::gbm::GbmFramebufferExporter,
@@ -20,8 +24,13 @@ use smithay::{
         egl::{EGLContext, EGLDisplay},
         libinput::{LibinputInputBackend, LibinputSessionInterface},
         renderer::{
-            element::surface::WaylandSurfaceRenderElement,
+            element::{
+                memory::MemoryRenderBuffer,
+                surface::WaylandSurfaceRenderElement,
+                AsRenderElements,
+            },
             gles::GlesRenderer,
+            ImportAll, ImportMem,
         },
         session::{libseat::LibSeatSession, Event as SessionEvent, Session},
         udev::{all_gpus, primary_gpu, UdevBackend, UdevEvent},
@@ -30,16 +39,25 @@ use smithay::{
     output::{Mode as WlMode, Output, PhysicalProperties, Subpixel},
     reexports::calloop::{EventLoop, RegistrationToken},
     reexports::input::Libinput,
-    utils::DeviceFd,
+    utils::{DeviceFd, Logical, Point, Scale, Transform},
 };
 
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 
+use crate::cursor::PointerRenderElement;
 use crate::Marlow;
 
 type CrtcHandle = drm::control::crtc::Handle;
 
-type RenderElements = SpaceRenderElements<
+// Output render elements: space windows + software cursor.
+// Two-generic pattern (matches Anvil's approach) to satisfy SpaceRenderElements bounds.
+smithay::backend::renderer::element::render_elements! {
+    pub OutputRenderElements<R, E> where R: ImportAll + ImportMem;
+    Space=SpaceRenderElements<R, E>,
+    Pointer=PointerRenderElement<R>,
+}
+
+type ConcreteOutputElements = OutputRenderElements<
     GlesRenderer,
     WaylandSurfaceRenderElement<GlesRenderer>,
 >;
@@ -139,10 +157,10 @@ pub fn run_kms(event_loop: &mut EventLoop<Marlow>, state: &mut Marlow) -> Result
     let exporter = GbmFramebufferExporter::new(gbm.clone(), render_node.into());
 
     let color_formats = [
-        smithay::backend::allocator::Fourcc::Argb8888,
-        smithay::backend::allocator::Fourcc::Abgr8888,
-        smithay::backend::allocator::Fourcc::Xrgb8888,
-        smithay::backend::allocator::Fourcc::Xbgr8888,
+        Fourcc::Argb8888,
+        Fourcc::Abgr8888,
+        Fourcc::Xrgb8888,
+        Fourcc::Xbgr8888,
     ];
 
     // 8. Create DRM output manager
@@ -166,7 +184,6 @@ pub fn run_kms(event_loop: &mut EventLoop<Marlow>, state: &mut Marlow) -> Result
                         let _ = surface.drm_output.frame_submitted();
                     }
                 }
-                // Render next frame
                 render_surface(state, node, crtc);
             }
             DrmEvent::Error(err) => {
@@ -271,6 +288,23 @@ pub fn run_kms(event_loop: &mut EventLoop<Marlow>, state: &mut Marlow) -> Result
     Ok(())
 }
 
+/// Explicit cleanup: drop surfaces before DRM device to avoid restore errors.
+pub fn cleanup_kms(state: &mut Marlow) {
+    for gpu in state.kms_backends.values_mut() {
+        // Unmap all outputs from spaces
+        for surface in gpu.surfaces.values() {
+            state.user_space.unmap_output(&surface.output);
+        }
+        // Drop all DRM surfaces
+        gpu.surfaces.clear();
+    }
+    // Drop GPU backends (DRM output managers)
+    state.kms_backends.clear();
+    // Drop renderer
+    state.kms_renderer.take();
+    tracing::info!("KMS cleanup complete");
+}
+
 /// Scan DRM connectors and set up outputs.
 fn scan_connectors(
     state: &mut Marlow,
@@ -327,7 +361,7 @@ fn scan_connectors(
                 // Initialize DRM output
                 let drm_output = gpu.drm_output_manager
                     .lock()
-                    .initialize_output::<GlesRenderer, RenderElements>(
+                    .initialize_output::<GlesRenderer, ConcreteOutputElements>(
                         crtc,
                         drm_mode,
                         &[connector.handle()],
@@ -362,7 +396,7 @@ fn scan_connectors(
     Ok(())
 }
 
-/// Render a single output surface.
+/// Render a single output surface with software cursor.
 fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
     // Take renderer out of state temporarily to avoid borrow conflicts
     let mut renderer = match state.kms_renderer.take() {
@@ -373,22 +407,86 @@ fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
     let _result = (|| -> Option<()> {
         let gpu = state.kms_backends.get_mut(&node)?;
         let surface = gpu.surfaces.get_mut(&crtc)?;
+        let output = &surface.output;
 
-        // Generate render elements from user_space
-        let elements = smithay::desktop::space::space_render_elements::<_, Window, _>(
+        // Get pointer location
+        let pointer_location: Point<f64, Logical> = state
+            .user_seat
+            .get_pointer()
+            .map(|p| p.current_location())
+            .unwrap_or_default();
+
+        // Get cursor image for current frame
+        let cursor_frame = state.cursor.get_image(1, state.start_time.elapsed());
+        let cursor_hotspot = (cursor_frame.xhot as i32, cursor_frame.yhot as i32);
+
+        // Find or create MemoryRenderBuffer for this cursor frame
+        let pointer_image = state
+            .pointer_images
+            .iter()
+            .find_map(|(image, buffer)| {
+                if image == &cursor_frame {
+                    Some(buffer.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| {
+                let buffer = MemoryRenderBuffer::from_slice(
+                    &cursor_frame.pixels_rgba,
+                    Fourcc::Argb8888,
+                    (cursor_frame.width as i32, cursor_frame.height as i32),
+                    1,
+                    Transform::Normal,
+                    None,
+                );
+                state
+                    .pointer_images
+                    .push((cursor_frame, buffer.clone()));
+                buffer
+            });
+
+        // Update pointer element
+        state.pointer_element.set_buffer(pointer_image);
+        state.pointer_element.set_status(state.cursor_status.clone());
+
+        // Generate cursor render elements
+        let output_geometry = state.user_space.output_geometry(output)?;
+        let scale = Scale::from(output.current_scale().fractional_scale());
+        let cursor_pos = pointer_location - output_geometry.loc.to_f64();
+        let cursor_hotspot: Point<i32, Logical> = cursor_hotspot.into();
+
+        let mut elements: Vec<ConcreteOutputElements> = state
+            .pointer_element
+            .render_elements(
+                &mut renderer,
+                (cursor_pos - cursor_hotspot.to_f64())
+                    .to_physical(scale)
+                    .to_i32_round(),
+                scale,
+                1.0,
+            );
+
+        // Generate space render elements
+        let space_elements = smithay::desktop::space::space_render_elements::<_, Window, _>(
             &mut renderer,
             [&state.user_space],
-            &surface.output,
+            output,
             1.0,
-        ).ok()?;
+        )
+        .ok()?;
+
+        elements.extend(space_elements.into_iter().map(OutputRenderElements::from));
 
         // Render frame
-        let render_result = surface.drm_output.render_frame::<GlesRenderer, RenderElements>(
-            &mut renderer,
-            &elements,
-            [0.1, 0.1, 0.1, 1.0],
-            FrameFlags::empty(),
-        );
+        let render_result = surface
+            .drm_output
+            .render_frame::<GlesRenderer, ConcreteOutputElements>(
+                &mut renderer,
+                &elements,
+                [0.1, 0.1, 0.1, 1.0],
+                FrameFlags::empty(),
+            );
 
         match render_result {
             Ok(result) => {

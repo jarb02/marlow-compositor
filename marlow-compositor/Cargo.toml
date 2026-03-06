@@ -30,3 +30,4 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 drm-fourcc = "2.2"
 drm = "0.14"
+xcursor = "0.3"

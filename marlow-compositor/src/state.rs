@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use std::{ffi::OsString, sync::Arc};
 
 use smithay::{
+    backend::renderer::element::memory::MemoryRenderBuffer,
     desktop::{PopupManager, Space, Window, WindowSurfaceType},
-    input::{Seat, SeatState},
+    input::{pointer::CursorImageStatus, Seat, SeatState},
     output::Output,
     reexports::{
         calloop::{generic::Generic, EventLoop, Interest, LoopSignal, Mode, PostAction},
@@ -20,7 +21,10 @@ use smithay::{
         compositor::{CompositorClientState, CompositorState},
         output::OutputManagerState,
         selection::data_device::DataDeviceState,
-        shell::xdg::XdgShellState,
+        shell::{
+            wlr_layer::WlrLayerShellState,
+            xdg::XdgShellState,
+        },
         shm::ShmState,
         socket::ListeningSocketSource,
     },
@@ -86,10 +90,22 @@ pub struct Marlow {
     // Shadow frame timing (15 FPS = 66ms)
     pub last_shadow_frame: std::time::Instant,
 
+    // Cursor state (software cursor for KMS)
+    pub cursor: crate::cursor::Cursor,
+    pub cursor_status: CursorImageStatus,
+    pub pointer_element: crate::cursor::PointerElement,
+    pub pointer_images: Vec<(xcursor::parser::Image, MemoryRenderBuffer)>,
+
+    // Layer shell
+    pub layer_shell_state: WlrLayerShellState,
+
     // KMS backend state (only used when running in TTY mode)
     pub kms_backends: HashMap<smithay::backend::drm::DrmNode, crate::backend::kms::GpuBackendHandle>,
     pub kms_renderer: Option<smithay::backend::renderer::gles::GlesRenderer>,
     pub kms_primary_node: Option<smithay::backend::drm::DrmNode>,
+
+    // xwayland-satellite process (KMS mode)
+    pub xwayland_process: Option<std::process::Child>,
 }
 
 impl Marlow {
@@ -103,6 +119,7 @@ impl Marlow {
         let popups = PopupManager::default();
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
 
         let mut seat_state = SeatState::new();
 
@@ -154,9 +171,15 @@ impl Marlow {
             shadow_pending_count: 0,
             output: None,
             last_shadow_frame: start_time,
+            cursor: crate::cursor::Cursor::load(),
+            cursor_status: CursorImageStatus::default_named(),
+            pointer_element: crate::cursor::PointerElement::default(),
+            pointer_images: Vec::new(),
+            layer_shell_state,
             kms_backends: HashMap::new(),
             kms_renderer: None,
             kms_primary_node: None,
+            xwayland_process: None,
         }
     }
 

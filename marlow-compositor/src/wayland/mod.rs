@@ -94,8 +94,9 @@ impl SeatHandler for Marlow {
     fn cursor_image(
         &mut self,
         _seat: &Seat<Self>,
-        _image: smithay::input::pointer::CursorImageStatus,
+        image: smithay::input::pointer::CursorImageStatus,
     ) {
+        self.cursor_status = image;
     }
 
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
@@ -171,3 +172,50 @@ delegate_data_device!(Marlow);
 
 impl OutputHandler for Marlow {}
 delegate_output!(Marlow);
+
+// ─── Layer Shell (wlr-layer-shell: waybar, etc.) ───
+
+use smithay::delegate_layer_shell;
+use smithay::desktop::{layer_map_for_output, LayerSurface};
+use smithay::output::Output;
+use smithay::wayland::shell::wlr_layer::{
+    Layer, LayerSurface as WlrLayerSurface, WlrLayerShellHandler, WlrLayerShellState,
+};
+
+impl WlrLayerShellHandler for Marlow {
+    fn shell_state(&mut self) -> &mut WlrLayerShellState {
+        &mut self.layer_shell_state
+    }
+
+    fn new_layer_surface(
+        &mut self,
+        surface: WlrLayerSurface,
+        wl_output: Option<smithay::reexports::wayland_server::protocol::wl_output::WlOutput>,
+        _layer: Layer,
+        namespace: String,
+    ) {
+        let output = wl_output
+            .as_ref()
+            .and_then(Output::from_resource)
+            .unwrap_or_else(|| self.user_space.outputs().next().unwrap().clone());
+        let mut map = layer_map_for_output(&output);
+        map.map_layer(&LayerSurface::new(surface, namespace)).unwrap();
+        tracing::info!("Layer surface mapped");
+    }
+
+    fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
+        if let Some((mut map, layer)) = self.user_space.outputs().find_map(|o| {
+            let map = layer_map_for_output(o);
+            let layer = map
+                .layers()
+                .find(|&l| l.layer_surface() == &surface)
+                .cloned();
+            layer.map(|l| (map, l))
+        }) {
+            map.unmap_layer(&layer);
+            tracing::info!("Layer surface destroyed");
+        }
+    }
+}
+
+delegate_layer_shell!(Marlow);

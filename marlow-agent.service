@@ -1,0 +1,16 @@
+[Unit]
+Description=Marlow AI Agent Daemon
+After=marlow-compositor.service
+Requires=marlow-compositor.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -c "from marlow.daemon_linux import main; main()"
+WorkingDirectory=/home/josemarlow/marlow
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=ANTHROPIC_API_KEY=%h/.config/marlow/api_key
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

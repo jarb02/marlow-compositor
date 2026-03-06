@@ -1,6 +1,7 @@
 #![allow(irrefutable_let_patterns)]
 
 mod backend;
+mod cursor;
 mod input;
 mod ipc;
 mod seat;
@@ -42,12 +43,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set WAYLAND_DISPLAY so child processes connect to us
     std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
 
+    // Launch xwayland-satellite for X11 app compatibility (KMS mode only)
+    if !use_winit {
+        match std::process::Command::new("xwayland-satellite")
+            .arg(":0")
+            .spawn()
+        {
+            Ok(child) => {
+                state.xwayland_process = Some(child);
+                std::env::set_var("DISPLAY", ":0");
+                tracing::info!("xwayland-satellite started on :0");
+            }
+            Err(e) => {
+                tracing::warn!("xwayland-satellite not available: {e} (X11 apps won't work)");
+            }
+        }
+    }
+
     // Optionally spawn clients: marlow-compositor -c foot -c foot
     spawn_clients();
 
     event_loop.run(None, &mut state, |state| {
         ipc::poll_ipc(state);
     })?;
+
+    // Cleanup: KMS surfaces before DRM device drops (avoids restore errors)
+    backend::kms::cleanup_kms(&mut state);
+
+    // Cleanup: kill xwayland-satellite
+    if let Some(mut child) = state.xwayland_process.take() {
+        child.kill().ok();
+        child.wait().ok();
+    }
 
     // Cleanup IPC socket
     if let Some(path) = &state.ipc_socket_path {
