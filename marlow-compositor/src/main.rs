@@ -45,14 +45,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Launch xwayland-satellite for X11 app compatibility (KMS mode only)
     if !use_winit {
+        // Find a free X display (skip displays with existing lock files)
+        let x_display = (0..10)
+            .find(|n| !std::path::Path::new(&format!("/tmp/.X{n}-lock")).exists())
+            .map(|n| format!(":{n}"))
+            .unwrap_or_else(|| ":1".to_string());
+
         match std::process::Command::new("xwayland-satellite")
-            .arg(":0")
+            .arg(&x_display)
             .spawn()
         {
             Ok(child) => {
                 state.xwayland_process = Some(child);
-                std::env::set_var("DISPLAY", ":0");
-                tracing::info!("xwayland-satellite started on :0");
+                std::env::set_var("DISPLAY", &x_display);
+                tracing::info!("xwayland-satellite started on {x_display}");
             }
             Err(e) => {
                 tracing::warn!("xwayland-satellite not available: {e} (X11 apps won't work)");

@@ -132,7 +132,8 @@ pub fn run_kms(event_loop: &mut EventLoop<Marlow>, state: &mut Marlow) -> Result
     let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
 
     // 4. Create DRM device + GBM device
-    let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), true)?;
+    // false = don't try to restore previous DRM state on drop (avoids EINVAL on exit)
+    let (drm, drm_notifier) = DrmDevice::new(drm_fd.clone(), false)?;
     let gbm = GbmDevice::new(drm_fd)?;
 
     // 5. Create EGL display + GLES renderer
