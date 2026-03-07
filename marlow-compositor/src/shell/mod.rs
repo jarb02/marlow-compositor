@@ -59,8 +59,25 @@ impl XdgShellHandler for Marlow {
         let window_id = self.register_window(window.clone());
 
         // Route to shadow_space if there are pending shadow launches
+        // Timeout: if shadow_pending_count has been > 0 for more than 10s, reset it
+        if self.shadow_pending_count > 0 {
+            if let Some(ts) = self.shadow_pending_timestamp {
+                if ts.elapsed().as_secs() > 10 {
+                    tracing::warn!(
+                        "shadow_pending_count={} timed out after 10s, resetting to 0",
+                        self.shadow_pending_count
+                    );
+                    self.shadow_pending_count = 0;
+                    self.shadow_pending_timestamp = None;
+                }
+            }
+        }
+
         if self.shadow_pending_count > 0 {
             self.shadow_pending_count -= 1;
+            if self.shadow_pending_count == 0 {
+                self.shadow_pending_timestamp = None;
+            }
             self.shadow_space.map_element(window, (0, 0), false);
             self.shadow_window_ids.insert(window_id);
             tracing::info!("Window {window_id} mapped to shadow_space (title={title:?})");

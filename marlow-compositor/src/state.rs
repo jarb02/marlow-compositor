@@ -87,6 +87,7 @@ pub struct Marlow {
 
     // Shadow mode: pending launches
     pub shadow_pending_count: u32,
+    pub shadow_pending_timestamp: Option<std::time::Instant>,
 
     // Output reference for shadow frame callbacks
     pub output: Option<Output>,
@@ -191,6 +192,7 @@ impl Marlow {
             shadow_window_ids: HashSet::new(),
             next_window_id: 0,
             shadow_pending_count: 0,
+            shadow_pending_timestamp: None,
             output: None,
             last_shadow_frame: start_time,
             cursor: crate::cursor::Cursor::load(),
@@ -242,6 +244,15 @@ impl Marlow {
     /// Find surface under pointer — searches user_space only (for hardware input).
     pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
         self.user_space.element_under(pos).and_then(|(window, location)| {
+            window
+                .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
+                .map(|(s, p)| (s, (p + location).to_f64()))
+        })
+    }
+
+    /// Find surface under pointer in shadow_space (for agent input to shadow windows).
+    pub fn shadow_surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+        self.shadow_space.element_under(pos).and_then(|(window, location)| {
             window
                 .surface_under(pos - location.to_f64(), WindowSurfaceType::ALL)
                 .map(|(s, p)| (s, (p + location).to_f64()))

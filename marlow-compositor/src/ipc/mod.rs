@@ -344,6 +344,9 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
 
         Request::LaunchInShadow { command } => {
             state.shadow_pending_count += 1;
+            if state.shadow_pending_timestamp.is_none() {
+                state.shadow_pending_timestamp = Some(std::time::Instant::now());
+            }
             tracing::info!("LaunchInShadow: '{command}', pending_count={}", state.shadow_pending_count);
 
             match std::process::Command::new(&command).spawn() {
@@ -391,14 +394,50 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
             match window {
                 Some(w) if state.is_shadow(window_id) => {
                     state.shadow_space.unmap_elem(&w);
-                    state.user_space.map_element(w, (0, 0), false);
+
+                    // Cascade positioning: find a free spot below waybar
+                    let pos = state.user_space.outputs().next().map(|o| {
+                        let map = smithay::desktop::layer_map_for_output(o);
+                        let zone = map.non_exclusive_zone();
+                        if zone.loc.y > 0 {
+                            (zone.loc.x, zone.loc.y)
+                        } else {
+                            (0, 32)
+                        }
+                    }).unwrap_or((0, 32));
+
+                    let mut final_pos = pos;
+                    for existing in state.user_space.elements() {
+                        if let Some(eloc) = state.user_space.element_location(existing) {
+                            if eloc.x == final_pos.0 && eloc.y == final_pos.1 {
+                                final_pos = (final_pos.0 + 30, final_pos.1 + 30);
+                            }
+                        }
+                    }
+
+                    state.user_space.map_element(w.clone(), final_pos, false);
                     state.shadow_window_ids.remove(&window_id);
-                    tracing::info!("Window {window_id} moved to user_space (promoted)");
+
+                    // Focus the promoted window via user_seat
+                    let serial = SERIAL_COUNTER.next_serial();
+                    if let Some(keyboard) = state.user_seat.get_keyboard() {
+                        keyboard.set_focus(
+                            state,
+                            Some(w.toplevel().unwrap().wl_surface().clone()),
+                            serial,
+                        );
+                    }
+                    state.user_space.raise_element(&w, true);
+
+                    tracing::info!(
+                        "Window {window_id} promoted to user_space at ({},{}) with focus",
+                        final_pos.0, final_pos.1
+                    );
                     state.event_queue.push(marlow_ipc::Event::WindowMovedToUser {
                         window_id,
                     });
                     Response::Ok {
-                        data: json!({"moved_to_user": window_id}),
+                        data: json!({"moved_to_user": window_id, "x": final_pos.0, "y": final_pos.1}),
                     }
                 }
                 Some(_) => Response::Error {
@@ -573,7 +612,12 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
     let abs_pos = (window_loc.x + x, window_loc.y + y).into();
 
     let pointer = state.agent_seat.get_pointer().unwrap();
-    let under = state.surface_under(abs_pos);
+    // Shadow-aware: search the correct space based on window_id
+    let under = if state.is_shadow(window_id) {
+        state.shadow_surface_under(abs_pos)
+    } else {
+        state.surface_under(abs_pos)
+    };
     let time = state.start_time.elapsed().as_millis() as u32;
 
     // Linux button codes: BTN_LEFT=0x110, BTN_RIGHT=0x111, BTN_MIDDLE=0x112
