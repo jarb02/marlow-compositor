@@ -131,8 +131,12 @@ fn spawn_session_apps() {
         Err(_) => tracing::info!("waybar not found, skipping panel"),
     }
 
-    // Foot terminal
-    match std::process::Command::new("foot").spawn() {
+    // Foot terminal with dark background for visibility
+    match std::process::Command::new("foot")
+        .args(["--override", "colors.background=282c34",
+               "--override", "pad=8x8"])
+        .spawn()
+    {
         Ok(_) => tracing::info!("Spawned foot terminal"),
         Err(e) => tracing::warn!("Failed to spawn foot: {e}"),
     }

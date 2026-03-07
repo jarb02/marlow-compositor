@@ -86,7 +86,10 @@ impl Marlow {
                     }
                     Some(KeyAction::LaunchTerminal) => {
                         tracing::info!("Super+Return — launching terminal");
-                        std::process::Command::new("foot").spawn().ok();
+                        std::process::Command::new("foot")
+                            .args(["--override", "colors.background=282c34",
+                                   "--override", "pad=8x8"])
+                            .spawn().ok();
                     }
                     _ => {}
                 }
