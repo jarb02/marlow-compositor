@@ -45,6 +45,8 @@ use smithay::{
 
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 
+use smithay::desktop::layer_map_for_output;
+
 use crate::cursor::PointerRenderElement;
 use crate::Marlow;
 
@@ -499,6 +501,29 @@ fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
                 1.0,
             );
 
+        // Arrange layer surfaces (waybar, swaybg, mako)
+        {
+            let mut layer_map = layer_map_for_output(output);
+            layer_map.arrange();
+        }
+
+        // Generate layer surface render elements
+        {
+            let layer_map = layer_map_for_output(output);
+            for layer in layer_map.layers() {
+                if let Some(geo) = layer_map.layer_geometry(layer) {
+                    let loc = geo.loc.to_physical_precise_round(scale);
+                    let layer_elems = layer.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                        &mut renderer,
+                        loc,
+                        scale,
+                        1.0,
+                    );
+                    elements.extend(layer_elems.into_iter().map(|e| OutputRenderElements::from(SpaceRenderElements::from(e))));
+                }
+            }
+        }
+
         // Generate space render elements
         let space_elements = smithay::desktop::space::space_render_elements::<_, Window, _>(
             &mut renderer,
@@ -564,6 +589,19 @@ fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
             );
         });
 
+        // Send frame callbacks to layer surfaces
+        {
+            let layer_map = layer_map_for_output(&output);
+            for layer in layer_map.layers() {
+                layer.send_frame(
+                    &output,
+                    elapsed,
+                    Some(Duration::ZERO),
+                    |_, _| Some(output.clone()),
+                );
+            }
+        }
+
         // Shadow frame callbacks (15 FPS throttled)
         let now = std::time::Instant::now();
         if now.duration_since(state.last_shadow_frame) >= Duration::from_millis(66) {
@@ -581,6 +619,10 @@ fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
 
         state.user_space.refresh();
         state.popups.cleanup();
+        {
+            let mut layer_map = layer_map_for_output(&output);
+            layer_map.cleanup();
+        }
         state.cleanup_dead_windows();
         let _ = state.display_handle.flush_clients();
 

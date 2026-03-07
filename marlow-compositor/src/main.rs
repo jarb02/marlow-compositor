@@ -105,30 +105,48 @@ fn init_logging() {
 
 /// Auto-spawn essential session apps (KMS mode only).
 fn spawn_session_apps() {
-    // Waybar — top panel (optional, may not be installed)
-    match std::process::Command::new("waybar").spawn() {
-        Ok(_) => tracing::info!("Spawned waybar"),
-        Err(_) => tracing::info!("waybar not found — skipping panel"),
+    // Mako notification daemon (must start before notify-send)
+    match std::process::Command::new("mako").spawn() {
+        Ok(_) => tracing::info!("Spawned mako notification daemon"),
+        Err(_) => tracing::info!("mako not found, notifications disabled"),
     }
 
-    // Foot terminal — default terminal emulator
+    // Swaybg wallpaper (dark blue fallback color)
+    match std::process::Command::new("swaybg")
+        .args(["-m", "solid_color", "-c", "#1a1a2e"])
+        .spawn()
+    {
+        Ok(_) => tracing::info!("Spawned swaybg wallpaper"),
+        Err(_) => tracing::info!("swaybg not found, no wallpaper"),
+    }
+
+    // Waybar top panel with Marlow branding
+    let waybar_config = "/home/josemarlow/marlow-compositor/config/waybar/config.jsonc";
+    let waybar_style = "/home/josemarlow/marlow-compositor/config/waybar/style.css";
+    match std::process::Command::new("waybar")
+        .args(["-c", waybar_config, "-s", waybar_style])
+        .spawn()
+    {
+        Ok(_) => tracing::info!("Spawned waybar with Marlow config"),
+        Err(_) => tracing::info!("waybar not found, skipping panel"),
+    }
+
+    // Foot terminal
     match std::process::Command::new("foot").spawn() {
         Ok(_) => tracing::info!("Spawned foot terminal"),
         Err(e) => tracing::warn!("Failed to spawn foot: {e}"),
     }
 
-    // Welcome notification (delayed so notification daemon has time to start)
+    // Welcome notification (delayed so mako has time to start)
     std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        std::thread::sleep(std::time::Duration::from_secs(3));
         std::process::Command::new("notify-send")
-            .args(["Marlow OS", "Ready. Press Super+M to talk to Marlow."])
+            .args(["-t", "5000", "Marlow OS", "Ready. Press Super+M to talk to Marlow."])
             .spawn()
             .ok();
     });
 }
 
-/// Spawn client processes. Supports multiple -c flags:
-///   marlow-compositor -c foot -c foot
 fn spawn_clients() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;

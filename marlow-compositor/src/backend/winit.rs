@@ -4,7 +4,10 @@ use smithay::{
     backend::{
         renderer::{
             damage::OutputDamageTracker,
-            element::surface::WaylandSurfaceRenderElement,
+            element::{
+                surface::WaylandSurfaceRenderElement,
+                AsRenderElements,
+            },
             gles::{GlesRenderer, GlesTarget},
             ExportMem,
         },
@@ -12,8 +15,10 @@ use smithay::{
     },
     output::{Mode, Output, PhysicalProperties, Subpixel},
     reexports::calloop::EventLoop,
-    utils::{Rectangle, Transform},
+    utils::{Rectangle, Scale, Transform},
 };
+
+use smithay::desktop::layer_map_for_output;
 
 use crate::Marlow;
 
@@ -74,7 +79,34 @@ pub fn init_winit(
                 let size = backend.window_size();
                 let damage = Rectangle::from_size(size);
 
-                // Render user_space to screen
+                // Arrange layer surfaces (waybar, swaybg, mako, etc.)
+                {
+                    let mut layer_map = layer_map_for_output(&output);
+                    layer_map.arrange();
+                }
+
+                // Collect layer surface render elements
+                let layer_elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = {
+                    let layer_map = layer_map_for_output(&output);
+                    let scale = Scale::from(output.current_scale().fractional_scale());
+                    let mut elements = Vec::new();
+                    for layer in layer_map.layers() {
+                        if let Some(geo) = layer_map.layer_geometry(layer) {
+                            let loc = geo.loc.to_physical_precise_round(scale);
+                            elements.extend(
+                                layer.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                                    backend.renderer(),
+                                    loc,
+                                    scale,
+                                    1.0,
+                                )
+                            );
+                        }
+                    }
+                    elements
+                };
+
+                // Render user_space + layer surfaces to screen
                 {
                     let (renderer, mut framebuffer) = backend.bind().unwrap();
                     smithay::desktop::space::render_output::<
@@ -89,7 +121,7 @@ pub fn init_winit(
                         1.0,
                         0,
                         [&state.user_space],
-                        &[],
+                        &layer_elements,
                         &mut damage_tracker,
                         [0.1, 0.1, 0.1, 1.0],
                     )
@@ -98,14 +130,13 @@ pub fn init_winit(
 
                 backend.submit(Some(&[damage])).unwrap();
 
-                // Screenshot capture after submit — re-bind to read the back buffer
+                // Screenshot capture after submit
                 if state.screenshot_pending {
                     let (renderer, framebuffer) = backend.bind().unwrap();
                     capture_screenshot(renderer, &framebuffer, size.w, size.h, state);
                 }
 
-                // Shadow screenshot: render shadow_space to framebuffer, capture, don't submit.
-                // The next Redraw will overwrite this with user_space (full damage).
+                // Shadow screenshot: render shadow_space, capture, don't submit
                 if state.shadow_screenshot_pending {
                     let (renderer, mut framebuffer) = backend.bind().unwrap();
                     smithay::desktop::space::render_output::<
@@ -138,6 +169,19 @@ pub fn init_winit(
                     )
                 });
 
+                // Send frame callbacks to layer surfaces
+                {
+                    let layer_map = layer_map_for_output(&output);
+                    for layer in layer_map.layers() {
+                        layer.send_frame(
+                            &output,
+                            state.start_time.elapsed(),
+                            Some(Duration::ZERO),
+                            |_, _| Some(output.clone()),
+                        );
+                    }
+                }
+
                 // Send frame callbacks to shadow_space windows (15 FPS throttled)
                 let now = std::time::Instant::now();
                 if now.duration_since(state.last_shadow_frame) >= Duration::from_millis(66) {
@@ -155,6 +199,10 @@ pub fn init_winit(
 
                 state.user_space.refresh();
                 state.popups.cleanup();
+                {
+                    let mut layer_map = layer_map_for_output(&output);
+                    layer_map.cleanup();
+                }
                 state.cleanup_dead_windows();
                 let _ = state.display_handle.flush_clients();
 

@@ -22,10 +22,6 @@ enum KeyAction {
     LaunchTerminal,
 }
 
-/// Counter for diagnostic logging (first N events only).
-static INPUT_LOG_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-const INPUT_LOG_MAX: u32 = 20;
-
 impl Marlow {
     /// Process hardware input events — routed to user_seat only.
     pub fn process_input_event<I: InputBackend>(&mut self, event: InputEvent<I>) {
@@ -35,12 +31,6 @@ impl Marlow {
                 let time = Event::time_msec(&event);
                 let code = event.key_code();
 
-                // Diagnostic: log first N key events
-                let n = INPUT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if n < INPUT_LOG_MAX {
-                    tracing::info!("Input: key code={code:?} state={:?}", event.state());
-                }
-
                 let action = self.user_seat.get_keyboard().unwrap().input::<KeyAction, _>(
                     self,
                     code,
@@ -49,6 +39,16 @@ impl Marlow {
                     time,
                     |_, modifiers, keysym| {
                         let sym = keysym.modified_sym();
+
+                        // Log all modifier+key combos for debugging
+                        if modifiers.logo || modifiers.ctrl || modifiers.alt {
+                            tracing::info!(
+                                "Keybind: logo={} ctrl={} alt={} shift={} sym={:?} code={:?}",
+                                modifiers.logo, modifiers.ctrl, modifiers.alt,
+                                modifiers.shift, sym, code
+                            );
+                        }
+
                         if modifiers.ctrl && sym == keysyms::KEY_q.into() {
                             FilterResult::Intercept(KeyAction::Quit)
                         } else if modifiers.logo && sym == keysyms::KEY_m.into() {
@@ -68,13 +68,16 @@ impl Marlow {
                     }
                     Some(KeyAction::LaunchMarlow) => {
                         tracing::info!("Super+M — launching Marlow launcher");
-                        std::process::Command::new("python3")
+                        match std::process::Command::new("python3")
                             .arg("/home/josemarlow/marlow/launcher.py")
                             .env("WAYLAND_DISPLAY", &self.socket_name)
                             .env("XDG_RUNTIME_DIR",
                                 std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())
                             .spawn()
-                            .ok();
+                        {
+                            Ok(_) => tracing::info!("Launcher spawned OK"),
+                            Err(e) => tracing::error!("Failed to spawn launcher: {e}"),
+                        }
                     }
                     Some(KeyAction::LaunchTerminal) => {
                         tracing::info!("Super+Return — launching terminal");
@@ -84,7 +87,6 @@ impl Marlow {
                 }
             }
             InputEvent::PointerMotion { event, .. } => {
-                // Relative pointer motion (touchpad/mouse in KMS mode)
                 let pointer = self.user_seat.get_pointer().unwrap();
                 let mut pos = pointer.current_location();
                 let delta = event.delta();
@@ -102,13 +104,6 @@ impl Marlow {
                             (output_geo.loc.y + output_geo.size.h) as f64,
                         );
                     }
-                }
-
-                // Diagnostic: log first N motion events
-                let n = INPUT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if n < INPUT_LOG_MAX {
-                    tracing::info!("Input: pointer motion dx={:.1} dy={:.1} -> ({:.0},{:.0})",
-                        delta.x, delta.y, pos.x, pos.y);
                 }
 
                 let serial = SERIAL_COUNTER.next_serial();
@@ -153,13 +148,6 @@ impl Marlow {
                 let button = event.button_code();
                 let button_state = event.state();
 
-                // Diagnostic: log button events
-                let n = INPUT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if n < INPUT_LOG_MAX {
-                    tracing::info!("Input: button={button} state={button_state:?} at ({:.0},{:.0})",
-                        pointer.current_location().x, pointer.current_location().y);
-                }
-
                 if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
                     if let Some((window, _loc)) = self
                         .user_space
@@ -181,7 +169,6 @@ impl Marlow {
                                 let window_id = self
                                     .surface_to_window_id(&surface)
                                     .unwrap_or(u64::MAX);
-                                // Clear agent focus — user takes over
                                 agent_kb.set_focus(
                                     self,
                                     Option::<WlSurface>::None,
