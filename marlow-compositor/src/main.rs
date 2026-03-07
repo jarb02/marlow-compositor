@@ -131,8 +131,6 @@ fn cleanup_stale_processes() {
         }
     }
 
-    // Kill leftover Marlow daemon
-    let _ = Command::new("pkill").args(["-f", "daemon_linux"]).status();
 
     // Brief pause so sockets/locks are fully released
     std::thread::sleep(std::time::Duration::from_millis(500));
