@@ -1,0 +1,27 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "modules-left": ["custom/marlow"],
+    "modules-center": ["clock"],
+    "modules-right": ["battery", "network", "pulseaudio"],
+    "custom/marlow": {
+        "format": "  Marlow OS",
+        "on-click": "python3 /home/josemarlow/marlow/launcher.py"
+    },
+    "clock": {
+        "format": "{:%H:%M  %b %d, %Y}"
+    },
+    "battery": {
+        "format": "{icon} {capacity}%",
+        "format-icons": ["", "", "", "", ""]
+    },
+    "network": {
+        "format-wifi": " {signalStrength}%",
+        "format-disconnected": " off"
+    },
+    "pulseaudio": {
+        "format": " {volume}%",
+        "format-muted": " mute"
+    }
+}

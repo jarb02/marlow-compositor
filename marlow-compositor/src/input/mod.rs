@@ -70,6 +70,9 @@ impl Marlow {
                         tracing::info!("Super+M — launching Marlow launcher");
                         std::process::Command::new("python3")
                             .arg("/home/josemarlow/marlow/launcher.py")
+                            .env("WAYLAND_DISPLAY", &self.socket_name)
+                            .env("XDG_RUNTIME_DIR",
+                                std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())
                             .spawn()
                             .ok();
                     }

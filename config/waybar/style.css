@@ -1,0 +1,33 @@
+* {
+    font-family: "JetBrains Mono", "Noto Sans", sans-serif;
+    font-size: 13px;
+}
+
+window#waybar {
+    background-color: rgba(27, 42, 74, 0.95);
+    color: #ffffff;
+}
+
+#custom-marlow {
+    color: #7eb8da;
+    font-weight: bold;
+    padding: 0 15px;
+}
+
+#clock {
+    color: #ffffff;
+    font-weight: bold;
+}
+
+#battery, #network, #pulseaudio {
+    padding: 0 10px;
+    color: #cccccc;
+}
+
+#battery.warning {
+    color: #f0c674;
+}
+
+#battery.critical {
+    color: #cc6666;
+}
