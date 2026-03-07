@@ -349,7 +349,15 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
             }
             tracing::info!("LaunchInShadow: '{command}', pending_count={}", state.shadow_pending_count);
 
-            match std::process::Command::new(&command).spawn() {
+            // Split command into program + args (supports "firefox https://...")
+            let parts: Vec<&str> = command.split_whitespace().collect();
+            let (program, args) = if parts.is_empty() {
+                (command.as_str(), vec![])
+            } else {
+                (parts[0], parts[1..].to_vec())
+            };
+
+            match std::process::Command::new(program).args(&args).spawn() {
                 Ok(child) => {
                     tracing::info!("LaunchInShadow: spawned PID {}", child.id());
                     Response::Ok {
