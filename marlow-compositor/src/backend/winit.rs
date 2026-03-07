@@ -19,6 +19,7 @@ use smithay::{
 };
 
 use smithay::desktop::layer_map_for_output;
+use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
 
 use crate::Marlow;
 
@@ -85,22 +86,26 @@ pub fn init_winit(
                     layer_map.arrange();
                 }
 
-                // Collect layer surface render elements
+                // Collect layer surface render elements (Top+Overlay only, rendered above windows)
+                // Background+Bottom layers are handled by the clear color in winit mode
+                // and rendered below windows in KMS mode.
                 let layer_elements: Vec<WaylandSurfaceRenderElement<GlesRenderer>> = {
                     let layer_map = layer_map_for_output(&output);
                     let scale = Scale::from(output.current_scale().fractional_scale());
                     let mut elements = Vec::new();
-                    for layer in layer_map.layers() {
-                        if let Some(geo) = layer_map.layer_geometry(layer) {
-                            let loc = geo.loc.to_physical_precise_round(scale);
-                            elements.extend(
-                                layer.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
-                                    backend.renderer(),
-                                    loc,
-                                    scale,
-                                    1.0,
-                                )
-                            );
+                    for layer_type in &[WlrLayer::Overlay, WlrLayer::Top] {
+                        for layer in layer_map.layers_on(*layer_type) {
+                            if let Some(geo) = layer_map.layer_geometry(layer) {
+                                let loc = geo.loc.to_physical_precise_round(scale);
+                                elements.extend(
+                                    layer.render_elements::<WaylandSurfaceRenderElement<GlesRenderer>>(
+                                        backend.renderer(),
+                                        loc,
+                                        scale,
+                                        1.0,
+                                    )
+                                );
+                            }
                         }
                     }
                     elements

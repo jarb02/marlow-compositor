@@ -27,10 +27,14 @@ use smithay::{
         },
         shm::ShmState,
         socket::ListeningSocketSource,
+        viewporter::ViewporterState,
+        fractional_scale::FractionalScaleManagerState,
+        selection::primary_selection::PrimarySelectionState,
     },
 };
 
 use smithay::utils::IsAlive;
+use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
 
 use crate::seat::arbiter::SeatArbiter;
 
@@ -98,6 +102,10 @@ pub struct Marlow {
 
     // Layer shell
     pub layer_shell_state: WlrLayerShellState,
+    pub viewporter_state: ViewporterState,
+    pub fractional_scale_state: FractionalScaleManagerState,
+    pub xdg_decoration_state: XdgDecorationState,
+    pub primary_selection_state: PrimarySelectionState,
 
     // KMS backend state (only used when running in TTY mode)
     pub kms_backends: HashMap<smithay::backend::drm::DrmNode, crate::backend::kms::GpuBackendHandle>,
@@ -120,6 +128,10 @@ impl Marlow {
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
         let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        let viewporter_state = ViewporterState::new::<Self>(&dh);
+        let fractional_scale_state = FractionalScaleManagerState::new::<Self>(&dh);
+        let xdg_decoration_state = XdgDecorationState::new::<Self>(&dh);
+        let primary_selection_state = PrimarySelectionState::new::<Self>(&dh);
 
         let mut seat_state = SeatState::new();
 
@@ -186,6 +198,10 @@ impl Marlow {
             pointer_element: crate::cursor::PointerElement::default(),
             pointer_images: Vec::new(),
             layer_shell_state,
+            viewporter_state,
+            fractional_scale_state,
+            xdg_decoration_state,
+            primary_selection_state,
             kms_backends: HashMap::new(),
             kms_renderer: None,
             kms_primary_node: None,

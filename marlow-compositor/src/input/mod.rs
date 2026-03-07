@@ -14,6 +14,7 @@ use smithay::{
 };
 
 use crate::Marlow;
+use crate::input::grabs::{MoveSurfaceGrab, ResizeSurfaceGrab};
 
 /// Compositor keybind actions.
 enum KeyAction {
@@ -31,25 +32,29 @@ impl Marlow {
                 let time = Event::time_msec(&event);
                 let code = event.key_code();
 
+                let key_state = event.state();
                 let action = self.user_seat.get_keyboard().unwrap().input::<KeyAction, _>(
                     self,
                     code,
-                    event.state(),
+                    key_state,
                     serial,
                     time,
                     |_, modifiers, keysym| {
                         let sym = keysym.modified_sym();
 
-                        // Log all modifier+key combos for debugging
-                        if modifiers.logo || modifiers.ctrl || modifiers.alt {
+                        // Always log Super key presses
+                        if modifiers.logo {
                             tracing::info!(
-                                "Keybind: logo={} ctrl={} alt={} shift={} sym={:?} code={:?}",
-                                modifiers.logo, modifiers.ctrl, modifiers.alt,
-                                modifiers.shift, sym, code
+                                "KEY: logo={} keysym={:#x} code={:?} ctrl={} alt={} shift={}",
+                                modifiers.logo, Into::<u32>::into(sym), code,
+                                modifiers.ctrl, modifiers.alt, modifiers.shift
                             );
                         }
 
-                        if modifiers.ctrl && sym == keysyms::KEY_q.into() {
+                        use smithay::backend::input::KeyState;
+                        if key_state == KeyState::Released {
+                            FilterResult::Forward
+                        } else if modifiers.ctrl && sym == keysyms::KEY_q.into() {
                             FilterResult::Intercept(KeyAction::Quit)
                         } else if modifiers.logo && sym == keysyms::KEY_m.into() {
                             FilterResult::Intercept(KeyAction::LaunchMarlow)
@@ -69,7 +74,7 @@ impl Marlow {
                     Some(KeyAction::LaunchMarlow) => {
                         tracing::info!("Super+M — launching Marlow launcher");
                         match std::process::Command::new("python3")
-                            .arg("/home/josemarlow/marlow/launcher.py")
+                            .arg("/home/josemarlow/marlow/marlow/launcher.py")
                             .env("WAYLAND_DISPLAY", &self.socket_name)
                             .env("XDG_RUNTIME_DIR",
                                 std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())
@@ -148,6 +153,9 @@ impl Marlow {
                 let button = event.button_code();
                 let button_state = event.state();
 
+                // Check if Alt is held for compositor-initiated move/resize
+                let alt_held = keyboard.modifier_state().alt;
+
                 if ButtonState::Pressed == button_state && !pointer.is_grabbed() {
                     if let Some((window, _loc)) = self
                         .user_space
@@ -161,6 +169,36 @@ impl Marlow {
                             Some(surface.clone()),
                             serial,
                         );
+
+                        // Alt+Left click = move, Alt+Right click = resize
+                        if alt_held {
+                            let initial_window_location = self.user_space.element_location(&window).unwrap();
+                            // BTN_LEFT = 0x110 (272), BTN_RIGHT = 0x111 (273)
+                            if button == 0x110 {
+                                let start_data = pointer.grab_start_data().unwrap();
+                                let grab = MoveSurfaceGrab {
+                                    start_data,
+                                    window: window.clone(),
+                                    initial_window_location,
+                                };
+                                pointer.set_grab(self, grab, serial, smithay::input::pointer::Focus::Clear);
+                            } else if button == 0x111 {
+                                use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+                                let initial_window_size = window.geometry().size;
+                                let start_data = pointer.grab_start_data().unwrap();
+                                let grab = ResizeSurfaceGrab::start(
+                                    start_data,
+                                    window.clone(),
+                                    crate::input::grabs::resize_grab::ResizeEdge::BOTTOM_RIGHT,
+                                    smithay::utils::Rectangle::new(initial_window_location, initial_window_size),
+                                );
+                                window.toplevel().unwrap().with_pending_state(|state| {
+                                    state.states.set(xdg_toplevel::State::Resizing);
+                                });
+                                window.toplevel().unwrap().send_pending_configure();
+                                pointer.set_grab(self, grab, serial, smithay::input::pointer::Focus::Clear);
+                            }
+                        }
 
                         // Conflict check: if agent is focused on this window, agent loses focus
                         let agent_kb = self.agent_seat.get_keyboard().unwrap();

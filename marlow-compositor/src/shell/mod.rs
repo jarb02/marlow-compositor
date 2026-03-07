@@ -24,6 +24,8 @@ use smithay::{
     },
 };
 
+use smithay::desktop::layer_map_for_output;
+
 use crate::{
     input::grabs::{MoveSurfaceGrab, ResizeSurfaceGrab},
     Marlow,
@@ -63,11 +65,36 @@ impl XdgShellHandler for Marlow {
             self.shadow_window_ids.insert(window_id);
             tracing::info!("Window {window_id} mapped to shadow_space (title={title:?})");
         } else {
-            self.user_space.map_element(window.clone(), (0, 0), false);
+            // Position window below waybar's exclusive zone
+            // non_exclusive_zone may be (0,0) if waybar hasn't committed yet,
+            // so also scan Top layer surfaces for their geometry as fallback.
+            let pos = self.user_space.outputs().next().map(|o| {
+                let map = layer_map_for_output(o);
+                let zone = map.non_exclusive_zone();
+                if zone.loc.y > 0 {
+                    (zone.loc.x, zone.loc.y)
+                } else {
+                    // Fallback: check if any Top layer has height > 0
+                    use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
+                    let mut top_height = 0;
+                    for layer in map.layers_on(WlrLayer::Top) {
+                        if let Some(geo) = map.layer_geometry(layer) {
+                            if geo.size.h > 0 {
+                                top_height = geo.size.h;
+                                break;
+                            }
+                        }
+                    }
+                    // If still 0, use a sensible default when waybar is expected
+                    if top_height == 0 { top_height = 32; }
+                    (0, top_height)
+                }
+            }).unwrap_or((0, 32));
+            self.user_space.map_element(window.clone(), pos, false);
             let geo = window.geometry();
             tracing::info!(
-                "Window {window_id} mapped to user_space (title={title:?}, app_id={app_id:?}, geometry={}x{}+{}+{})",
-                geo.size.w, geo.size.h, geo.loc.x, geo.loc.y
+                "Window {window_id} mapped to user_space at ({},{}) (title={title:?}, app_id={app_id:?}, geometry={}x{}+{}+{})",
+                pos.0, pos.1, geo.size.w, geo.size.h, geo.loc.x, geo.loc.y
             );
         }
 
