@@ -33,3 +33,15 @@
 - Email: jarb02@users.noreply.github.com
 - Never include Co-authored-by or Claude references in commits
 - Push to: git@github.com:jarb02/marlow-compositor.git (main branch)
+
+## Current Issue (March 7, 2026)
+Shadow Mode goal "search for weather in homestead florida" reaches 1/2 steps.
+- Step 1 (launch_in_shadow): May succeed (Firefox spawns) but move_to_user fails
+- The daemon log and compositor log have the diagnostics
+- Check: grep 'step\|shadow\|move_to_user\|fail\|error' ~/.marlow/daemon.log | tail -40
+- Check: grep 'IPC request\|LaunchInShadow\|MoveToUser\|shadow' /tmp/marlow-kms.log | tail -20
+- The prompt tells LLM to use 2-step plan: launch_in_shadow + move_to_user
+- launch_in_shadow now splits command args correctly (415b16a)
+- Scoring fixed: 0/N steps = FAILED not success (f6deff3)
+- Key: launch_in_shadow waits up to 10s polling for window, returns window_id
+- The window_id from step 1 must be passed to step 2 (move_to_user)
