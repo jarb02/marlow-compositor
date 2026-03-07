@@ -68,6 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Auto-spawn essential apps in KMS mode (full desktop session)
     if !use_winit {
+        cleanup_stale_processes();
         spawn_session_apps();
     }
 
@@ -101,6 +102,42 @@ fn init_logging() {
     } else {
         tracing_subscriber::fmt().init();
     }
+}
+
+/// Kill leftover processes from previous compositor sessions.
+/// Firefox in particular leaves zombie/locked processes that prevent
+/// shadow mode from launching a new instance.
+fn cleanup_stale_processes() {
+    use std::process::Command;
+
+    // Kill leftover Firefox (zombies from previous shadow mode tests)
+    let _ = Command::new("pkill").args(["-9", "firefox"]).status();
+
+    // Remove Firefox profile locks so new instances can start
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/josemarlow".into());
+    let mozilla_dir = format!("{}/.mozilla/firefox", home);
+    if let Ok(entries) = std::fs::read_dir(&mozilla_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                for lock_name in &["lock", ".parentlock"] {
+                    let lock = path.join(lock_name);
+                    if lock.exists() {
+                        let _ = std::fs::remove_file(&lock);
+                        tracing::info!("Removed stale lock: {}", lock.display());
+                    }
+                }
+            }
+        }
+    }
+
+    // Kill leftover Marlow daemon
+    let _ = Command::new("pkill").args(["-f", "daemon_linux"]).status();
+
+    // Brief pause so sockets/locks are fully released
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    tracing::info!("Stale process cleanup complete");
 }
 
 /// Auto-spawn essential session apps (KMS mode only).

@@ -28,6 +28,13 @@ if ! command -v seatd &>/dev/null && ! systemctl is-active systemd-logind &>/dev
     exit 1
 fi
 
+# Clean up leftover processes from previous tests
+echo "Cleaning up stale processes..."
+pkill -9 firefox 2>/dev/null
+pkill -f daemon_linux 2>/dev/null
+rm -f ~/.mozilla/firefox/*/lock ~/.mozilla/firefox/*/.parentlock 2>/dev/null
+sleep 1
+
 # Clean up any stale socket
 rm -f /run/user/$(id -u)/marlow-compositor.sock
 
