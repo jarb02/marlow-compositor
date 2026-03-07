@@ -6,7 +6,7 @@ cd ~/marlow-compositor || exit 1
 
 echo "=== Marlow Compositor KMS Test ==="
 echo "This test runs the compositor directly on DRM/KMS hardware."
-echo "You should see a dark gray background with a white cursor."
+echo "Auto-spawns: waybar, foot, mako, swaybg, Marlow daemon"
 echo "Move the touchpad/mouse — cursor should follow."
 echo "Press Ctrl+Q to exit."
 echo ""
@@ -59,6 +59,9 @@ grep "Render frame" "$LOG" | head -10
 echo ""
 echo "--- Window mapping ---"
 grep "Window.*mapped" "$LOG"
+echo ""
+echo "--- Marlow Daemon ---"
+grep -i "daemon\|marlow.*ready\|tools registered" "$LOG"
 echo ""
 echo "--- Errors/Warnings ---"
 grep -i "error\|warn\|failed" "$LOG" | grep -v "GL Extensions"

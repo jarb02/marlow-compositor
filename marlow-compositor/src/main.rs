@@ -176,9 +176,22 @@ fn spawn_session_apps() {
         Err(e) => tracing::warn!("Failed to spawn foot: {e}"),
     }
 
-    // Welcome notification (delayed so mako has time to start)
+    // Marlow daemon (delayed 2s so compositor IPC socket is ready)
     std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(3));
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        match std::process::Command::new("python3")
+            .args(["-c", "from marlow.daemon_linux import main; main()"])
+            .current_dir("/home/josemarlow/marlow")
+            .spawn()
+        {
+            Ok(_) => tracing::info!("Spawned Marlow daemon"),
+            Err(e) => tracing::warn!("Failed to spawn Marlow daemon: {e}"),
+        }
+    });
+
+    // Welcome notification (delayed 4s so mako + daemon have time to start)
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(4));
         std::process::Command::new("notify-send")
             .args(["-t", "5000", "Marlow OS", "Ready. Press Super+M to talk to Marlow."])
             .spawn()
