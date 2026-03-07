@@ -64,6 +64,7 @@ pub fn poll_ipc(state: &mut Marlow) {
     for i in 0..n {
         match try_read_request(&mut state.ipc_clients[i]) {
             Ok(Some(request)) => {
+                tracing::info!("IPC request from client {i}: {request:?}");
                 let response = handle_request(request, state, i);
                 if write_message(&mut state.ipc_clients[i], &response).is_err() {
                     to_remove.push(i);
@@ -190,14 +191,30 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
         },
 
         Request::ListWindows => {
-            // Only user_space windows (non-shadow)
+            let total = state.window_registry.len();
+            let shadow_count = state.shadow_window_ids.len();
+            let alive_count = state.window_registry.iter().filter(|(_, w)| w.alive()).count();
+            tracing::info!(
+                "ListWindows: registry={total}, shadow_ids={shadow_count}, alive={alive_count}"
+            );
+
             let windows: Vec<WindowInfo> = state
                 .window_registry
                 .iter()
-                .filter(|(id, w)| !state.shadow_window_ids.contains(id) && w.alive())
+                .filter(|(id, w)| {
+                    let is_shadow = state.shadow_window_ids.contains(id);
+                    let is_alive = w.alive();
+                    if !is_alive || is_shadow {
+                        tracing::info!(
+                            "ListWindows: filtered window {id} (shadow={is_shadow}, alive={is_alive})"
+                        );
+                    }
+                    !is_shadow && is_alive
+                })
                 .filter_map(|(id, _)| build_window_info(state, *id))
                 .collect();
 
+            tracing::info!("ListWindows: returning {} windows", windows.len());
             Response::Ok {
                 data: serde_json::to_value(&windows).unwrap_or(json!([])),
             }

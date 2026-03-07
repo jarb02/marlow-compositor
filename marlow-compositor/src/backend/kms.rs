@@ -48,9 +48,7 @@ use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
 use smithay::desktop::layer_map_for_output;
 use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
 
-use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
-use smithay::backend::renderer::element::Kind;
-use smithay::backend::renderer::Color32F;
+use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 
 use crate::cursor::PointerRenderElement;
 use crate::Marlow;
@@ -585,117 +583,7 @@ fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
         .ok()?;
         elements.extend(space_elements.into_iter().map(OutputRenderElements::from));
 
-        // Window borders: 4px outline around each window
-        // Focused: #7eb8da (Marlow blue), unfocused: #4a5568 (gray)
-        {
-            let focused_surface = state.user_seat.get_keyboard().unwrap().current_focus();
-            let border_w: i32 = 4;
-            for window in state.user_space.elements() {
-                if let Some(loc) = state.user_space.element_location(window) {
-                    let geo = window.geometry();
-                    let w = geo.size.w;
-                    let h = geo.size.h;
-                    let x = loc.x + geo.loc.x;
-                    let y = loc.y + geo.loc.y;
-
-                    // Skip zero-size windows (not yet configured)
-                    if w == 0 || h == 0 {
-                        continue;
-                    }
-
-                    let is_focused = focused_surface.as_ref()
-                        .map(|f| window.toplevel().unwrap().wl_surface() == f)
-                        .unwrap_or(false);
-
-                    {
-                        let fn_ = FRAME_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-                        if fn_ < 30 || fn_ % 300 == 0 {
-                            tracing::info!(
-                                "border_pos: window at ({x},{y}) size {w}x{h} focused={is_focused} scale={scale:?}"
-                            );
-                        }
-                    }
-
-                    // Convert logical coordinates to physical for SolidColorRenderElement
-                    let sx = scale.x;
-                    let sy = scale.y;
-
-                    let color = if is_focused {
-                        Color32F::new(0.494, 0.722, 0.855, 1.0) // #7eb8da
-                    } else {
-                        Color32F::new(0.290, 0.333, 0.408, 1.0) // #4a5568
-                    };
-
-                    // Top border
-                    let top = SolidColorBuffer::new((w + border_w * 2, border_w), color);
-                    elements.push(OutputRenderElements::Solid(
-                        SolidColorRenderElement::from_buffer(
-                            &top,
-                            smithay::utils::Point::from((
-                                ((x - border_w) as f64 * sx) as i32,
-                                ((y - border_w) as f64 * sy) as i32,
-                            )),
-                            scale,
-                            1.0,
-                            Kind::Unspecified,
-                        )
-                    ));
-                    // Bottom border
-                    let bottom = SolidColorBuffer::new((w + border_w * 2, border_w), color);
-                    elements.push(OutputRenderElements::Solid(
-                        SolidColorRenderElement::from_buffer(
-                            &bottom,
-                            smithay::utils::Point::from((
-                                ((x - border_w) as f64 * sx) as i32,
-                                ((y + h) as f64 * sy) as i32,
-                            )),
-                            scale,
-                            1.0,
-                            Kind::Unspecified,
-                        )
-                    ));
-                    // Left border
-                    let left = SolidColorBuffer::new((border_w, h), color);
-                    elements.push(OutputRenderElements::Solid(
-                        SolidColorRenderElement::from_buffer(
-                            &left,
-                            smithay::utils::Point::from((
-                                ((x - border_w) as f64 * sx) as i32,
-                                (y as f64 * sy) as i32,
-                            )),
-                            scale,
-                            1.0,
-                            Kind::Unspecified,
-                        )
-                    ));
-                    // Right border
-                    let right = SolidColorBuffer::new((border_w, h), color);
-                    elements.push(OutputRenderElements::Solid(
-                        SolidColorRenderElement::from_buffer(
-                            &right,
-                            smithay::utils::Point::from((
-                                ((x + w) as f64 * sx) as i32,
-                                (y as f64 * sy) as i32,
-                            )),
-                            scale,
-                            1.0,
-                            Kind::Unspecified,
-                        )
-                    ));
-                }
-            }
-        }
-
-        // Count border elements for debug
-        let border_count = elements.iter().filter(|e| matches!(e, OutputRenderElements::Solid(_))).count();
-        if border_count > 0 {
-            let fn_ = FRAME_COUNT.load(std::sync::atomic::Ordering::Relaxed);
-            if fn_ < 5 || fn_ % 300 == 0 {
-                tracing::info!("border_debug: {border_count} border elements for {} windows", state.user_space.elements().count());
-            }
-        }
-
-        // Bottom + Background layers (below windows)
+                // Bottom + Background layers (below windows)
         elements.append(&mut bottom_layer_elements);
 
         // Render frame

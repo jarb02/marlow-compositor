@@ -340,7 +340,7 @@ impl FractionalScaleHandler for Marlow {
 
 delegate_fractional_scale!(Marlow);
 
-// --- XDG Decoration (server-side decorations for foot, etc.) ---
+// --- XDG Decoration (client-side decorations — apps draw their own) ---
 
 use smithay::delegate_xdg_decoration;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationHandler;
@@ -350,21 +350,21 @@ use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_to
 impl XdgDecorationHandler for Marlow {
     fn new_decoration(&mut self, toplevel: ToplevelSurface) {
         toplevel.with_pending_state(|state| {
-            state.decoration_mode = Some(DecorationMode::ServerSide);
+            state.decoration_mode = Some(DecorationMode::ClientSide);
         });
         toplevel.send_configure();
     }
 
-    fn request_mode(&mut self, toplevel: ToplevelSurface, mode: DecorationMode) {
+    fn request_mode(&mut self, toplevel: ToplevelSurface, _mode: DecorationMode) {
         toplevel.with_pending_state(|state| {
-            state.decoration_mode = Some(mode);
+            state.decoration_mode = Some(DecorationMode::ClientSide);
         });
         toplevel.send_configure();
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
         toplevel.with_pending_state(|state| {
-            state.decoration_mode = Some(DecorationMode::ServerSide);
+            state.decoration_mode = Some(DecorationMode::ClientSide);
         });
         toplevel.send_configure();
     }

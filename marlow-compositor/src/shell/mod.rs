@@ -90,11 +90,21 @@ impl XdgShellHandler for Marlow {
                     (0, top_height)
                 }
             }).unwrap_or((0, 32));
-            self.user_space.map_element(window.clone(), pos, false);
+            // Offset if another window already occupies this position
+            let mut final_pos = pos;
+            for existing in self.user_space.elements() {
+                if let Some(eloc) = self.user_space.element_location(existing) {
+                    if eloc.x == final_pos.0 && eloc.y == final_pos.1 {
+                        // Cascade: offset 30px right and 30px down
+                        final_pos = (final_pos.0 + 30, final_pos.1 + 30);
+                    }
+                }
+            }
+            self.user_space.map_element(window.clone(), final_pos, false);
             let geo = window.geometry();
             tracing::info!(
                 "Window {window_id} mapped to user_space at ({},{}) (title={title:?}, app_id={app_id:?}, geometry={}x{}+{}+{})",
-                pos.0, pos.1, geo.size.w, geo.size.h, geo.loc.x, geo.loc.y
+                final_pos.0, final_pos.1, geo.size.w, geo.size.h, geo.loc.x, geo.loc.y
             );
         }
 
