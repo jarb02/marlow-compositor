@@ -21,6 +21,8 @@ enum KeyAction {
     Quit,
     LaunchMarlow,
     LaunchTerminal,
+    VoicePTTPress,
+    VoicePTTRelease,
 }
 
 impl Marlow {
@@ -53,13 +55,20 @@ impl Marlow {
 
                         use smithay::backend::input::KeyState;
                         if key_state == KeyState::Released {
-                            FilterResult::Forward
+                            // Super+V release triggers voice PTT stop
+                            if modifiers.logo && sym == keysyms::KEY_v.into() {
+                                FilterResult::Intercept(KeyAction::VoicePTTRelease)
+                            } else {
+                                FilterResult::Forward
+                            }
                         } else if modifiers.ctrl && sym == keysyms::KEY_q.into() {
                             FilterResult::Intercept(KeyAction::Quit)
                         } else if modifiers.logo && sym == keysyms::KEY_m.into() {
                             FilterResult::Intercept(KeyAction::LaunchMarlow)
                         } else if modifiers.logo && sym == keysyms::KEY_Return.into() {
                             FilterResult::Intercept(KeyAction::LaunchTerminal)
+                        } else if modifiers.logo && sym == keysyms::KEY_v.into() {
+                            FilterResult::Intercept(KeyAction::VoicePTTPress)
                         } else {
                             FilterResult::Forward
                         }
@@ -90,6 +99,14 @@ impl Marlow {
                             .args(["--override", "colors.background=282c34",
                                    "--override", "pad=8x8"])
                             .spawn().ok();
+                    }
+                    Some(KeyAction::VoicePTTPress) => {
+                        tracing::info!("Super+V — voice push-to-talk START");
+                        let _ = std::fs::write("/tmp/marlow-voice-trigger", "press");
+                    }
+                    Some(KeyAction::VoicePTTRelease) => {
+                        tracing::info!("Super+V — voice push-to-talk STOP");
+                        let _ = std::fs::write("/tmp/marlow-voice-trigger", "release");
                     }
                     _ => {}
                 }

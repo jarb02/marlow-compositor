@@ -1,0 +1,20 @@
+[Unit]
+Description=Marlow Voice Daemon
+After=marlow-agent.service
+Wants=marlow-agent.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/josemarlow/marlow/voice_daemon.py --always-listen --log-level INFO
+WorkingDirectory=/home/josemarlow/marlow
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=PATH=/home/josemarlow/.local/bin:/usr/bin:/bin
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+EnvironmentFile=-/home/josemarlow/.config/marlow/env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
