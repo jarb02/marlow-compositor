@@ -34,14 +34,22 @@
 - Never include Co-authored-by or Claude references in commits
 - Push to: git@github.com:jarb02/marlow-compositor.git (main branch)
 
-## Current Issue (March 7, 2026)
-Shadow Mode goal "search for weather in homestead florida" reaches 1/2 steps.
-- Step 1 (launch_in_shadow): May succeed (Firefox spawns) but move_to_user fails
-- The daemon log and compositor log have the diagnostics
-- Check: grep 'step\|shadow\|move_to_user\|fail\|error' ~/.marlow/daemon.log | tail -40
-- Check: grep 'IPC request\|LaunchInShadow\|MoveToUser\|shadow' /tmp/marlow-kms.log | tail -20
-- The prompt tells LLM to use 2-step plan: launch_in_shadow + move_to_user
-- launch_in_shadow now splits command args correctly (415b16a)
-- Scoring fixed: 0/N steps = FAILED not success (f6deff3)
-- Key: launch_in_shadow waits up to 10s polling for window, returns window_id
-- The window_id from step 1 must be passed to step 2 (move_to_user)
+## IPC Protocol (18 commands)
+Core: Ping, ListWindows, GetWindowInfo, FocusWindow, GetSeatStatus, Subscribe
+Input: SendKey, SendText, SendClick, SendHotkey (all target window_id via agent_seat)
+Shadow: LaunchInShadow, GetShadowWindows, MoveToShadow, MoveToUser
+Manage: CloseWindow, MinimizeWindow, MaximizeWindow
+Screenshot: RequestScreenshot (supports shadow windows)
+
+## Key Architecture
+- Input routing: all input commands (SendKey/SendText/SendClick/SendHotkey) focus the
+  target window on agent_seat before sending input. This enables shadow window interaction.
+- focus_agent_window() helper ensures consistent input targeting across all commands.
+- Shadow screenshots use separate pending/buffer mechanism (shadow_screenshot_pending).
+- manage_window: Close sends xdg_toplevel close. Minimize unmaps from space (tracked in
+  minimized_window_ids). Maximize configures toplevel size to output zone.
+
+## StepContext (b7e4b07)
+GoalEngine passes runtime values between steps using $variable references.
+Example: launch_in_shadow returns window_id, move_to_user uses "$window_id".
+The compositor doesn't need to know about this — it just receives the resolved window_id.
