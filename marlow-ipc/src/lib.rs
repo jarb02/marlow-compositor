@@ -20,6 +20,9 @@ pub enum Request {
     LaunchInShadow { command: String },
     Subscribe { events: Vec<String> },
     GetSeatStatus,
+    CloseWindow { window_id: u64 },
+    MinimizeWindow { window_id: u64 },
+    MaximizeWindow { window_id: u64 },
     Ping,
 }
 

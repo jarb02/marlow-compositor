@@ -283,15 +283,15 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
         // ─── Input commands ───
 
         Request::SendKey {
-            window_id: _,
+            window_id,
             key,
             pressed,
-        } => handle_send_key(state, key, pressed),
+        } => handle_send_key(state, window_id, key, pressed),
 
         Request::SendText {
-            window_id: _,
+            window_id,
             text,
-        } => handle_send_text(state, &text),
+        } => handle_send_text(state, window_id, &text),
 
         Request::SendClick {
             window_id,
@@ -301,10 +301,10 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
         } => handle_send_click(state, window_id, x, y, button),
 
         Request::SendHotkey {
-            window_id: _,
+            window_id,
             modifiers,
             key,
-        } => handle_send_hotkey(state, &modifiers, &key),
+        } => handle_send_hotkey(state, window_id, &modifiers, &key),
 
         // ─── Screenshot ───
 
@@ -457,6 +457,12 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
             }
         }
 
+        // ─── Window management ───
+
+        Request::CloseWindow { window_id } => handle_close_window(state, window_id),
+        Request::MinimizeWindow { window_id } => handle_minimize_window(state, window_id),
+        Request::MaximizeWindow { window_id } => handle_maximize_window(state, window_id),
+
         // ─── Event subscription ───
 
         Request::Subscribe { events: _ } => {
@@ -501,10 +507,33 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
     }
 }
 
+// ─── Input helpers ───
+
+/// Focus a window on the agent_seat keyboard (for targeted input).
+fn focus_agent_window(state: &mut Marlow, window_id: u64) -> Result<(), String> {
+    let window = state.find_window_by_id(window_id).cloned()
+        .ok_or_else(|| format!("Window {window_id} not found"))?;
+    let space = state.window_space_mut(window_id);
+    space.raise_element(&window, true);
+    let serial = SERIAL_COUNTER.next_serial();
+    if let Some(keyboard) = state.agent_seat.get_keyboard() {
+        keyboard.set_focus(
+            state,
+            Some(window.toplevel().unwrap().wl_surface().clone()),
+            serial,
+        );
+    }
+    Ok(())
+}
+
 // ─── Input handlers ───
 
-/// Send a single key press/release to the focused client.
-fn handle_send_key(state: &mut Marlow, key: u32, pressed: bool) -> Response {
+/// Send a single key press/release to a specific window.
+fn handle_send_key(state: &mut Marlow, window_id: u64, key: u32, pressed: bool) -> Response {
+    if let Err(msg) = focus_agent_window(state, window_id) {
+        return Response::Error { message: msg };
+    }
+
     let keyboard = match state.agent_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
@@ -532,7 +561,11 @@ fn handle_send_key(state: &mut Marlow, key: u32, pressed: bool) -> Response {
 }
 
 /// Type a string by synthesizing key press/release for each character.
-fn handle_send_text(state: &mut Marlow, text: &str) -> Response {
+fn handle_send_text(state: &mut Marlow, window_id: u64, text: &str) -> Response {
+    if let Err(msg) = focus_agent_window(state, window_id) {
+        return Response::Error { message: msg };
+    }
+
     let keyboard = match state.agent_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
@@ -692,7 +725,11 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
 }
 
 /// Send a hotkey combination (modifiers + key).
-fn handle_send_hotkey(state: &mut Marlow, modifiers: &[String], key: &str) -> Response {
+fn handle_send_hotkey(state: &mut Marlow, window_id: u64, modifiers: &[String], key: &str) -> Response {
+    if let Err(msg) = focus_agent_window(state, window_id) {
+        return Response::Error { message: msg };
+    }
+
     let keyboard = match state.agent_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
@@ -762,6 +799,81 @@ fn handle_send_hotkey(state: &mut Marlow, modifiers: &[String], key: &str) -> Re
 
     Response::Ok {
         data: json!({"hotkey": format!("{}+{}", modifiers.join("+"), key)}),
+    }
+}
+
+// ─── Window management handlers ───
+
+/// Close a window (sends xdg_toplevel close request).
+fn handle_close_window(state: &mut Marlow, window_id: u64) -> Response {
+    match state.find_window_by_id(window_id).cloned() {
+        Some(w) => {
+            w.toplevel().unwrap().send_close();
+            tracing::info!("CloseWindow: sent close to {window_id}");
+            Response::Ok { data: json!({"closed": window_id}) }
+        }
+        None => Response::Error {
+            message: format!("Window {window_id} not found"),
+        },
+    }
+}
+
+/// Minimize a window (unmap from space, track in minimized set).
+fn handle_minimize_window(state: &mut Marlow, window_id: u64) -> Response {
+    match state.find_window_by_id(window_id).cloned() {
+        Some(w) => {
+            let space = state.window_space_mut(window_id);
+            space.unmap_elem(&w);
+            state.minimized_window_ids.insert(window_id);
+            tracing::info!("MinimizeWindow: {window_id} unmapped");
+            Response::Ok { data: json!({"minimized": window_id}) }
+        }
+        None => Response::Error {
+            message: format!("Window {window_id} not found"),
+        },
+    }
+}
+
+/// Maximize a window (resize to fill output zone, reposition).
+fn handle_maximize_window(state: &mut Marlow, window_id: u64) -> Response {
+    match state.find_window_by_id(window_id).cloned() {
+        Some(w) => {
+            let space = state.window_space(window_id);
+            let zone = space.outputs().next().map(|o| {
+                let map = smithay::desktop::layer_map_for_output(o);
+                map.non_exclusive_zone()
+            });
+            match zone {
+                Some(zone) => {
+                    // Configure toplevel with zone size
+                    let toplevel = w.toplevel().unwrap();
+                    toplevel.with_pending_state(|pending| {
+                        pending.size = Some(zone.size);
+                    });
+                    toplevel.send_pending_configure();
+
+                    // Reposition to fill zone
+                    let space = state.window_space_mut(window_id);
+                    space.unmap_elem(&w);
+                    space.map_element(w, (zone.loc.x, zone.loc.y), false);
+
+                    tracing::info!("MaximizeWindow: {window_id} -> {}x{}", zone.size.w, zone.size.h);
+                    Response::Ok {
+                        data: json!({
+                            "maximized": window_id,
+                            "x": zone.loc.x, "y": zone.loc.y,
+                            "width": zone.size.w, "height": zone.size.h
+                        }),
+                    }
+                }
+                None => Response::Error {
+                    message: "No output available".into(),
+                },
+            }
+        }
+        None => Response::Error {
+            message: format!("Window {window_id} not found"),
+        },
     }
 }
 

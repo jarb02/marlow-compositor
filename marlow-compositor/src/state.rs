@@ -83,6 +83,7 @@ pub struct Marlow {
     // Window registry: stable IDs that survive space moves
     pub window_registry: Vec<(u64, Window)>,
     pub shadow_window_ids: HashSet<u64>,
+    pub minimized_window_ids: HashSet<u64>,
     pub next_window_id: u64,
 
     // Shadow mode: pending launches
@@ -190,6 +191,7 @@ impl Marlow {
             ipc_subscribed: HashSet::new(),
             window_registry: Vec::new(),
             shadow_window_ids: HashSet::new(),
+            minimized_window_ids: HashSet::new(),
             next_window_id: 0,
             shadow_pending_count: 0,
             shadow_pending_timestamp: None,
