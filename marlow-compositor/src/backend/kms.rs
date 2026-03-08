@@ -49,6 +49,10 @@ use smithay::desktop::layer_map_for_output;
 use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
 
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
+use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
+use smithay::backend::renderer::damage::OutputDamageTracker as ScreenshotDamageTracker;
+use smithay::backend::renderer::gles::GlesTexture;
+use smithay::utils::{Buffer as BufferCoord, Rectangle};
 
 use crate::cursor::PointerRenderElement;
 use crate::Marlow;
@@ -680,6 +684,120 @@ fn render_surface(state: &mut Marlow, node: DrmNode, crtc: CrtcHandle) {
         Some(())
     })();
 
+    // Screenshot capture (outside render closure to avoid borrow conflicts)
+    if state.screenshot_pending {
+        if let Some(output) = state.output.as_ref() {
+            let output = output.clone();
+            if let Some(b64) = capture_kms_screenshot(
+                &mut renderer, &state.user_space, &output,
+            ) {
+                state.screenshot_data = Some(b64);
+            }
+        }
+        state.screenshot_pending = false;
+    }
+    if state.shadow_screenshot_pending {
+        if let Some(output) = state.output.as_ref() {
+            let output = output.clone();
+            if let Some(b64) = capture_kms_screenshot(
+                &mut renderer, &state.shadow_space, &output,
+            ) {
+                state.shadow_screenshot_data = Some(b64);
+            }
+        }
+        state.shadow_screenshot_pending = false;
+    }
+
     // Put renderer back
     state.kms_renderer = Some(renderer);
+}
+
+/// Capture a space as a base64 PNG screenshot using an offscreen texture.
+/// Returns Some(base64_string) on success, None on failure.
+fn capture_kms_screenshot(
+    renderer: &mut GlesRenderer,
+    space: &smithay::desktop::Space<Window>,
+    output: &Output,
+) -> Option<String> {
+    use base64::Engine;
+
+    let size = output.current_mode()?.size;
+    let buf_size: smithay::utils::Size<i32, BufferCoord> = (size.w, size.h).into();
+
+    // Create offscreen texture
+    let mut texture = match <GlesRenderer as Offscreen<GlesTexture>>::create_buffer(
+        renderer, Fourcc::Abgr8888, buf_size,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("KMS screenshot: create_buffer failed: {e:?}");
+            return None;
+        }
+    };
+
+    // Bind offscreen texture as render target
+    let mut target = match renderer.bind(&mut texture) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("KMS screenshot: bind failed: {e:?}");
+            return None;
+        }
+    };
+
+    // Render space to offscreen target
+    let mut damage_tracker = ScreenshotDamageTracker::from_output(output);
+    let render_result = smithay::desktop::space::render_output::<
+        _,
+        WaylandSurfaceRenderElement<GlesRenderer>,
+        _,
+        _,
+    >(
+        output,
+        renderer,
+        &mut target,
+        1.0,
+        0,
+        [space],
+        &[] as &[WaylandSurfaceRenderElement<GlesRenderer>],
+        &mut damage_tracker,
+        [0.1, 0.1, 0.1, 1.0],
+    );
+
+    if let Err(e) = render_result {
+        tracing::error!("KMS screenshot: render failed: {e:?}");
+        return None;
+    }
+
+    // Read pixels from offscreen target
+    let region = Rectangle::new(
+        (0, 0).into(),
+        (size.w, size.h).into(),
+    );
+    let mapping = match renderer.copy_framebuffer(&target, region, Fourcc::Abgr8888) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!("KMS screenshot: copy_framebuffer failed: {e:?}");
+            return None;
+        }
+    };
+    let pixels = match renderer.map_texture(&mapping) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("KMS screenshot: map_texture failed: {e:?}");
+            return None;
+        }
+    };
+
+    let rgba = pixels.to_vec();
+    let img = image::RgbaImage::from_raw(size.w as u32, size.h as u32, rgba)?;
+    let mut png_buf = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut png_buf);
+    if img.write_to(&mut cursor, image::ImageFormat::Png).is_err() {
+        tracing::error!("KMS screenshot: PNG encoding failed");
+        return None;
+    }
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_buf);
+    tracing::info!("KMS screenshot captured: {}x{}, {} bytes PNG", size.w, size.h, png_buf.len());
+    Some(b64)
 }
