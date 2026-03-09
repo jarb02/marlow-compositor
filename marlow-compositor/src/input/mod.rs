@@ -14,6 +14,8 @@ use smithay::{
 };
 
 use crate::Marlow;
+use smithay::desktop::{layer_map_for_output, WindowSurfaceType};
+use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
 use crate::input::grabs::{MoveSurfaceGrab, ResizeSurfaceGrab};
 
 /// Compositor keybind actions.
@@ -248,11 +250,39 @@ impl Marlow {
                             window.toplevel().unwrap().send_pending_configure();
                         });
                     } else {
-                        self.user_space.elements().for_each(|window| {
-                            window.set_activated(false);
-                            window.toplevel().unwrap().send_pending_configure();
-                        });
-                        keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+                        // Check if click landed on a layer surface (sidebar, etc.)
+                        // First pass: find the surface (immutable borrow of self)
+                        let layer_wl_surface = {
+                            let output = self.user_space.outputs().next().cloned();
+                            output.and_then(|o| {
+                                let layer_map = layer_map_for_output(&o);
+                                for layer_type in [WlrLayer::Overlay, WlrLayer::Top] {
+                                    for layer in layer_map.layers_on(layer_type) {
+                                        if layer.can_receive_keyboard_focus() {
+                                            if let Some(geo) = layer_map.layer_geometry(layer) {
+                                                let relative = pointer.current_location() - geo.loc.to_f64();
+                                                if layer.surface_under(relative, WindowSurfaceType::ALL).is_some() {
+                                                    return Some(layer.layer_surface().wl_surface().clone());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                None
+                            })
+                        };
+
+                        // Second pass: grant focus (mutable borrow of self)
+                        if let Some(wl_surface) = layer_wl_surface {
+                            keyboard.set_focus(self, Some(wl_surface), serial);
+                            tracing::info!("Keyboard focus granted to layer surface");
+                        } else {
+                            self.user_space.elements().for_each(|window| {
+                                window.set_activated(false);
+                                window.toplevel().unwrap().send_pending_configure();
+                            });
+                            keyboard.set_focus(self, Option::<WlSurface>::None, serial);
+                        }
                     }
                 };
 
