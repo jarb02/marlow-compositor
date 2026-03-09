@@ -11,6 +11,13 @@
 Order: mako -> swaybg -> waybar -> foot -> mic-setup.sh -> daemon (1s) -> voice daemon (3s) -> sidebar (5s) -> notification (6s).
 Loads env vars from ~/.config/marlow/env. Voice daemon crash does not affect compositor.
 
+## Agent Integration (Phase 9.5)
+The Python agent daemon (localhost:8420) uses Gemini as the single brain for all interaction:
+- Text (sidebar, console, telegram) -> GeminiTextBridge -> Gemini API with function calling
+- Voice -> GeminiLiveVoiceBridge -> Gemini Live API (bidirectional audio streaming)
+- Tools exposed to Gemini include compositor IPC commands: launch_in_shadow, move_to_user, list_windows
+- GoalEngine + Claude Sonnet used only as fallback when Gemini unavailable
+
 ## Development Rules
 - Think through the problem before writing code. Understand root cause first.
 - When a fix fails, add diagnostic logging BEFORE trying another fix
@@ -44,3 +51,9 @@ Screenshot: RequestScreenshot (supports shadow windows)
 ## Waybar Status Indicator
 custom/marlow-status module polls daemon /health + voice trigger file every 2s.
 Colors: gray=idle, blue+pulse=listening, amber=processing, green=responding, red=error.
+
+## Known Issues
+
+1. **launch_in_shadow on Sway mode:** When compositor is not running and agent runs on Sway, launch_in_shadow returns `{"success": false, "error": "Compositor not available"}`. The agent daemon now auto-falls back to open_application (visible launch). But list_windows via compositor IPC returns 0 windows instead of falling back to Sway's i3ipc window list — Gemini tells the user "no windows open" when Sway windows exist.
+
+2. **IPC socket detection:** CompositorWindowManager._ensure_connected() silently returns False when socket not found. Callers get None from _send() and generate "Compositor not available" messages. No mechanism to signal the platform layer to switch backends mid-session.
