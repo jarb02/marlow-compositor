@@ -2,9 +2,18 @@
     "layer": "top",
     "position": "top",
     "height": 30,
-    "modules-left": ["custom/marlow"],
-    "modules-center": ["clock"],
-    "modules-right": ["battery", "network", "pulseaudio"],
+    "modules-left": [
+        "custom/marlow",
+        "custom/marlow-status"
+    ],
+    "modules-center": [
+        "clock"
+    ],
+    "modules-right": [
+        "battery",
+        "network",
+        "pulseaudio"
+    ],
     "custom/marlow": {
         "format": "  Marlow OS",
         "on-click": "python3 /home/josemarlow/marlow/launcher.py"
@@ -14,7 +23,13 @@
     },
     "battery": {
         "format": "{icon} {capacity}%",
-        "format-icons": ["", "", "", "", ""]
+        "format-icons": [
+            "",
+            "",
+            "",
+            "",
+            ""
+        ]
     },
     "network": {
         "format-wifi": " {signalStrength}%",
@@ -23,5 +38,11 @@
     "pulseaudio": {
         "format": " {volume}%",
         "format-muted": " mute"
+    },
+    "custom/marlow-status": {
+        "exec": "bash /home/josemarlow/marlow-compositor/config/waybar/marlow-status.sh",
+        "return-type": "json",
+        "interval": 2,
+        "format": "{}"
     }
 }
