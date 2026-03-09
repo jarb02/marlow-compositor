@@ -43,7 +43,7 @@ echo "Log: $LOG"
 echo ""
 
 # Run release build with foot terminal, log everything
-RUST_LOG=info cargo run --release -- -c foot 2>&1 | tee "$LOG"
+RUST_LOG=info cargo run --release 2>&1 | tee "$LOG"
 
 echo ""
 echo "=== Compositor exited ==="
