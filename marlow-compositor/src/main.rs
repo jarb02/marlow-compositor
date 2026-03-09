@@ -236,7 +236,7 @@ fn spawn_session_apps() {
         // "Marlow listo" notification (1s after sidebar)
         std::thread::sleep(std::time::Duration::from_secs(1));
         std::process::Command::new("notify-send")
-            .args(["-a", "Marlow", "-t", "3000", "Marlow OS", "Marlow listo"])
+            .args(["-a", "Marlow", "-t", "5000", "Marlow OS", "Marlow listo"])
             .spawn()
             .ok();
     });
