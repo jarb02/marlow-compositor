@@ -42,7 +42,6 @@ window#waybar {
 }
 #custom-marlow-status.listening {
     color: #4dabf7;
-    animation: pulse 1.5s infinite;
 }
 #custom-marlow-status.processing {
     color: #ffc107;
@@ -55,8 +54,4 @@ window#waybar {
 }
 #custom-marlow-status.off {
     color: #444;
-}
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.3; }
 }

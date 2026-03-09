@@ -221,7 +221,7 @@ fn spawn_session_apps() {
         // Voice daemon (delayed 3s total — after HTTP daemon is ready)
         std::thread::sleep(std::time::Duration::from_secs(2));
         match std::process::Command::new("python3")
-            .args(["-c", "from marlow.voice_daemon import main; main()"])
+            .args(["-c", "from voice_daemon import main; main()"])
             .current_dir(&marlow_dir)
             .spawn()
         {

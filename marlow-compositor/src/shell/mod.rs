@@ -14,7 +14,7 @@ use smithay::{
             Resource,
         },
     },
-    utils::{Rectangle, Serial},
+    utils::{Rectangle, Serial, Size},
     wayland::{
         compositor::with_states,
         shell::xdg::{
@@ -82,47 +82,11 @@ impl XdgShellHandler for Marlow {
             self.shadow_window_ids.insert(window_id);
             tracing::info!("Window {window_id} mapped to shadow_space (title={title:?})");
         } else {
-            // Position window below waybar's exclusive zone
-            // non_exclusive_zone may be (0,0) if waybar hasn't committed yet,
-            // so also scan Top layer surfaces for their geometry as fallback.
-            let pos = self.user_space.outputs().next().map(|o| {
-                let map = layer_map_for_output(o);
-                let zone = map.non_exclusive_zone();
-                if zone.loc.y > 0 {
-                    (zone.loc.x, zone.loc.y)
-                } else {
-                    // Fallback: check if any Top layer has height > 0
-                    use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
-                    let mut top_height = 0;
-                    for layer in map.layers_on(WlrLayer::Top) {
-                        if let Some(geo) = map.layer_geometry(layer) {
-                            if geo.size.h > 0 {
-                                top_height = geo.size.h;
-                                break;
-                            }
-                        }
-                    }
-                    // If still 0, use a sensible default when waybar is expected
-                    if top_height == 0 { top_height = 32; }
-                    (0, top_height)
-                }
-            }).unwrap_or((0, 32));
-            // Offset if another window already occupies this position
-            let mut final_pos = pos;
-            for existing in self.user_space.elements() {
-                if let Some(eloc) = self.user_space.element_location(existing) {
-                    if eloc.x == final_pos.0 && eloc.y == final_pos.1 {
-                        // Cascade: offset 30px right and 30px down
-                        final_pos = (final_pos.0 + 30, final_pos.1 + 30);
-                    }
-                }
-            }
-            self.user_space.map_element(window.clone(), final_pos, false);
-            let geo = window.geometry();
+            self.user_space.map_element(window.clone(), (0, 0), false);
             tracing::info!(
-                "Window {window_id} mapped to user_space at ({},{}) (title={title:?}, app_id={app_id:?}, geometry={}x{}+{}+{})",
-                final_pos.0, final_pos.1, geo.size.w, geo.size.h, geo.loc.x, geo.loc.y
+                "Window {window_id} mapped to user_space (title={title:?}, app_id={app_id:?})"
             );
+            self.tile_windows();
         }
 
         // Emit WindowCreated event
@@ -295,6 +259,116 @@ pub fn handle_commit(
 }
 
 impl Marlow {
+    /// Tile all user_space windows in a master-stack layout.
+    ///
+    /// - 1 window: full available area
+    /// - 2 windows: split left/right (50/50)
+    /// - 3+ windows: master left half, stack on right
+    pub fn tile_windows(&mut self) {
+        let Some(output) = self.user_space.outputs().next().cloned() else {
+            return;
+        };
+
+        let map = layer_map_for_output(&output);
+        let zone = map.non_exclusive_zone();
+
+        // Available tiling area (non-exclusive zone excludes waybar + layer surfaces)
+        let output_geo = self
+            .user_space
+            .output_geometry(&output)
+            .unwrap_or_else(|| smithay::utils::Rectangle::from_loc_and_size((0, 0), (1366, 768)));
+
+        let area_x = zone.loc.x;
+        let area_y = if zone.loc.y > 0 {
+            zone.loc.y
+        } else {
+            // Fallback: scan Top layer surfaces for height
+            use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
+            let mut top_h = 0;
+            for layer in map.layers_on(WlrLayer::Top) {
+                if let Some(geo) = map.layer_geometry(layer) {
+                    if geo.size.h > 0 {
+                        top_h = geo.size.h;
+                        break;
+                    }
+                }
+            }
+            if top_h == 0 {
+                top_h = 32;
+            }
+            top_h
+        };
+        let area_w = if zone.size.w > 0 {
+            zone.size.w
+        } else {
+            output_geo.size.w
+        };
+        let area_h = if zone.size.h > 0 {
+            zone.size.h
+        } else {
+            output_geo.size.h - area_y
+        };
+
+        let windows: Vec<_> = self.user_space.elements().cloned().collect();
+        let count = windows.len();
+        if count == 0 {
+            return;
+        }
+
+        let gap = 4i32;
+
+        for (i, window) in windows.iter().enumerate() {
+            let (x, y, w, h) = match count {
+                1 => (area_x, area_y, area_w, area_h),
+                2 => {
+                    let half_w = (area_w - gap) / 2;
+                    if i == 0 {
+                        (area_x, area_y, half_w, area_h)
+                    } else {
+                        (area_x + half_w + gap, area_y, area_w - half_w - gap, area_h)
+                    }
+                }
+                _ => {
+                    // Master-stack layout
+                    let master_w = (area_w - gap) / 2;
+                    if i == 0 {
+                        (area_x, area_y, master_w, area_h)
+                    } else {
+                        let stack_n = (count - 1) as i32;
+                        let stack_h = (area_h - gap * (stack_n - 1)) / stack_n;
+                        let si = (i - 1) as i32;
+                        (
+                            area_x + master_w + gap,
+                            area_y + si * (stack_h + gap),
+                            area_w - master_w - gap,
+                            stack_h,
+                        )
+                    }
+                }
+            };
+
+            // Reposition window in space
+            self.user_space.map_element(window.clone(), (x, y), false);
+
+            // Send configure with tiled size
+            if let Some(toplevel) = window.toplevel() {
+                toplevel.with_pending_state(|state| {
+                    state.size = Some(Size::from((w, h)));
+                });
+                toplevel.send_pending_configure();
+            }
+        }
+
+        tracing::info!(
+            "Tiled {} windows in {}x{} area at ({},{})",
+            count,
+            area_w,
+            area_h,
+            area_x,
+            area_y
+        );
+    }
+
     fn unconstrain_popup(&self, popup: &PopupSurface) {
         let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
             return;
