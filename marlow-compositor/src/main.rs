@@ -140,6 +140,23 @@ fn cleanup_stale_processes() {
 
 /// Auto-spawn essential session apps (KMS mode only).
 fn spawn_session_apps() {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/josemarlow".into());
+    let env_file = format!("{}/.config/marlow/env", home);
+
+    // Load environment variables from ~/.config/marlow/env
+    if let Ok(contents) = std::fs::read_to_string(&env_file) {
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                std::env::set_var(key.trim(), value.trim());
+                tracing::info!("Loaded env: {}=***", key.trim());
+            }
+        }
+    }
+
     // Mako notification daemon (must start before notify-send)
     match std::process::Command::new("mako").spawn() {
         Ok(_) => tracing::info!("Spawned mako notification daemon"),
@@ -156,10 +173,10 @@ fn spawn_session_apps() {
     }
 
     // Waybar top panel with Marlow branding
-    let waybar_config = "/home/josemarlow/marlow-compositor/config/waybar/config.jsonc";
-    let waybar_style = "/home/josemarlow/marlow-compositor/config/waybar/style.css";
+    let waybar_config = format!("{}/marlow-compositor/config/waybar/config.jsonc", home);
+    let waybar_style = format!("{}/marlow-compositor/config/waybar/style.css", home);
     match std::process::Command::new("waybar")
-        .args(["-c", waybar_config, "-s", waybar_style])
+        .args(["-c", &waybar_config, "-s", &waybar_style])
         .spawn()
     {
         Ok(_) => tracing::info!("Spawned waybar with Marlow config"),
@@ -176,24 +193,46 @@ fn spawn_session_apps() {
         Err(e) => tracing::warn!("Failed to spawn foot: {e}"),
     }
 
-    // Marlow daemon (delayed 2s so compositor IPC socket is ready)
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(2));
+    // Mic calibration (run early, blocks briefly)
+    let mic_setup = format!("{}/.config/marlow/mic-setup.sh", home);
+    if std::path::Path::new(&mic_setup).exists() {
+        match std::process::Command::new("bash")
+            .arg(&mic_setup)
+            .status()
+        {
+            Ok(s) => tracing::info!("Mic calibration: exit {}", s),
+            Err(e) => tracing::warn!("Mic calibration failed: {e}"),
+        }
+    }
+
+    // Marlow HTTP daemon (delayed 1s so compositor IPC socket is ready)
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let marlow_dir = format!("{}/marlow", std::env::var("HOME").unwrap_or_else(|_| "/home/josemarlow".into()));
         match std::process::Command::new("python3")
             .args(["-c", "from marlow.daemon_linux import main; main()"])
-            .current_dir("/home/josemarlow/marlow")
+            .current_dir(&marlow_dir)
             .spawn()
         {
-            Ok(_) => tracing::info!("Spawned Marlow daemon"),
+            Ok(_) => tracing::info!("Spawned Marlow HTTP daemon (port 8420)"),
             Err(e) => tracing::warn!("Failed to spawn Marlow daemon: {e}"),
         }
-    });
 
-    // Welcome notification (delayed 4s so mako + daemon have time to start)
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(4));
+        // Voice daemon (delayed 3s total — after HTTP daemon is ready)
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        match std::process::Command::new("python3")
+            .args(["-c", "from marlow.voice_daemon import main; main()"])
+            .current_dir(&marlow_dir)
+            .spawn()
+        {
+            Ok(_) => tracing::info!("Spawned Marlow voice daemon"),
+            Err(e) => tracing::warn!("Failed to spawn voice daemon: {e}"),
+        }
+
+        // "Marlow listo" notification (1s after voice daemon)
+        std::thread::sleep(std::time::Duration::from_secs(1));
         std::process::Command::new("notify-send")
-            .args(["-t", "5000", "Marlow OS", "Ready. Press Super+M to talk to Marlow."])
+            .args(["-a", "Marlow", "-t", "3000", "Marlow OS", "Marlow listo"])
             .spawn()
             .ok();
     });
