@@ -226,6 +226,7 @@ fn spawn_session_apps() {
         match std::process::Command::new("python3")
             .args(["-c", "from marlow.bridges.sidebar.app import main; main()"])
             .current_dir(&marlow_dir)
+            .env("LD_PRELOAD", "/lib64/libgtk4-layer-shell.so")
             .spawn()
         {
             Ok(_) => tracing::info!("Spawned Marlow sidebar"),
