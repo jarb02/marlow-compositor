@@ -229,7 +229,18 @@ fn spawn_session_apps() {
             Err(e) => tracing::warn!("Failed to spawn voice daemon: {e}"),
         }
 
-        // "Marlow listo" notification (1s after voice daemon)
+        // Sidebar window (delayed 1s after voice daemon)
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        match std::process::Command::new("python3")
+            .args(["-c", "from marlow.bridges.sidebar.app import main; main()"])
+            .current_dir(&marlow_dir)
+            .spawn()
+        {
+            Ok(_) => tracing::info!("Spawned Marlow sidebar"),
+            Err(e) => tracing::warn!("Failed to spawn sidebar: {e}"),
+        }
+
+        // "Marlow listo" notification (1s after sidebar)
         std::thread::sleep(std::time::Duration::from_secs(1));
         std::process::Command::new("notify-send")
             .args(["-a", "Marlow", "-t", "3000", "Marlow OS", "Marlow listo"])
