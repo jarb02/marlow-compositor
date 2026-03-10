@@ -329,6 +329,7 @@ pub fn cleanup_kms(state: &mut Marlow) {
         // Unmap all outputs from spaces
         for surface in gpu.surfaces.values() {
             state.user_space.unmap_output(&surface.output);
+            state.shadow_space.unmap_output(&surface.output);
         }
         // Drop all DRM surfaces
         gpu.surfaces.clear();
@@ -391,6 +392,7 @@ fn scan_connectors(
                 output.set_preferred(wl_mode);
                 output.change_current_state(Some(wl_mode), None, None, Some((0, 0).into()));
                 state.user_space.map_output(&output, (0, 0));
+                state.shadow_space.map_output(&output, (0, 0));
                 state.output = Some(output.clone());
 
                 // Initialize DRM output
@@ -422,6 +424,7 @@ fn scan_connectors(
                 );
                 if let Some(surface) = gpu.surfaces.remove(&crtc) {
                     state.user_space.unmap_output(&surface.output);
+                    state.shadow_space.unmap_output(&surface.output);
                 }
             }
             _ => {}
