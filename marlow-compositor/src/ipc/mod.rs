@@ -66,7 +66,12 @@ pub fn poll_ipc(state: &mut Marlow) {
             Ok(Some(request)) => {
                 tracing::info!("IPC request from client {i}: {request:?}");
                 let response = handle_request(request, state, i);
-                if write_message(&mut state.ipc_clients[i], &response).is_err() {
+                // Set blocking for write — large payloads (screenshots ~300KB)
+                // can exceed the kernel buffer, causing WouldBlock in write_all.
+                state.ipc_clients[i].set_nonblocking(false).ok();
+                let write_ok = write_message(&mut state.ipc_clients[i], &response).is_ok();
+                state.ipc_clients[i].set_nonblocking(true).ok();
+                if !write_ok {
                     to_remove.push(i);
                 }
             }
