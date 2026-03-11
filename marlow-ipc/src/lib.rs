@@ -51,6 +51,7 @@ pub enum Event {
     WindowMovedToShadow { window_id: u64 },
     WindowMovedToUser { window_id: u64 },
     Pong,
+    ProactivityToggle,
 }
 
 // ─── Window info ───

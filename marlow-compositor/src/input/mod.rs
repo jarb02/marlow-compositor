@@ -25,6 +25,7 @@ enum KeyAction {
     LaunchTerminal,
     VoicePTTPress,
     VoicePTTRelease,
+    ProactivityToggle,
 }
 
 impl Marlow {
@@ -69,6 +70,8 @@ impl Marlow {
                             FilterResult::Intercept(KeyAction::LaunchMarlow)
                         } else if modifiers.logo && sym == keysyms::KEY_Return.into() {
                             FilterResult::Intercept(KeyAction::LaunchTerminal)
+                        } else if modifiers.logo && sym == keysyms::KEY_Escape.into() {
+                            FilterResult::Intercept(KeyAction::ProactivityToggle)
                         } else if modifiers.logo && sym == keysyms::KEY_v.into() {
                             FilterResult::Intercept(KeyAction::VoicePTTPress)
                         } else {
@@ -105,6 +108,10 @@ impl Marlow {
                     Some(KeyAction::VoicePTTPress) => {
                         tracing::info!("Super+V — voice push-to-talk START");
                         let _ = std::fs::write("/tmp/marlow-voice-trigger", "press");
+                    }
+                    Some(KeyAction::ProactivityToggle) => {
+                        tracing::info!("Super+Escape — toggling proactivity");
+                        self.event_queue.push(marlow_ipc::Event::ProactivityToggle);
                     }
                     Some(KeyAction::VoicePTTRelease) => {
                         tracing::info!("Super+V — voice push-to-talk STOP");
