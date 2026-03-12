@@ -8,3 +8,4 @@ Wants=marlow-waybar.service
 Wants=marlow-daemon.service
 Wants=marlow-voice.service
 Wants=marlow-sidebar.service
+Wants=marlow-polkit.service

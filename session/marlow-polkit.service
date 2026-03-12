@@ -1,0 +1,12 @@
+[Unit]
+Description=Polkit authentication agent
+PartOf=marlow-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lxpolkit
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=marlow-session.target

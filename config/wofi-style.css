@@ -1,0 +1,25 @@
+window {
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+    border: 2px solid #2e75b6;
+    border-radius: 8px;
+    font-family: Cantarell, sans-serif;
+    font-size: 14px;
+}
+
+#input {
+    background-color: #16213e;
+    color: #e0e0e0;
+    border: none;
+    border-bottom: 1px solid #2e75b6;
+    padding: 8px;
+}
+
+#entry {
+    padding: 8px;
+}
+
+#entry:selected {
+    background-color: #2e75b6;
+    color: #ffffff;
+}

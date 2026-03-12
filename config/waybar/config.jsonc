@@ -16,18 +16,18 @@
         "custom/power"
     ],
     "custom/marlow": {
-        "format": "  Marlow OS",
+        "format": "🤖 Marlow OS",
         "on-click": "python3 /home/josemarlow/marlow/marlow/launcher.py",
-        "tooltip": "Open Marlow launcher"
+        "tooltip": "Super+M to open launcher"
     },
     "clock": {
-        "format": "{:%H:%M  %b %d, %Y}",
+        "format": "🕐 {:%H:%M   %a %d %b}",
         "tooltip-format": "{:%A, %B %d, %Y}"
     },
     "battery": {
-        "format": "{icon} {capacity}%",
-        "format-charging": " {capacity}%",
-        "format-icons": ["", "", "", "", ""],
+        "format": "🔋 {capacity}%",
+        "format-charging": "⚡ {capacity}%",
+        "format-full": "🔋 Full",
         "states": {
             "warning": 30,
             "critical": 15
@@ -35,19 +35,16 @@
         "tooltip-format": "{timeTo} — {power:.1f}W"
     },
     "network": {
-        "format-wifi": " {signalStrength}%",
-        "format-ethernet": " wired",
-        "format-disconnected": " off",
-        "tooltip-format-wifi": "{essid} ({signalStrength}%)\n{ipaddr}/{cidr}",
-        "tooltip-format-disconnected": "Disconnected",
+        "format-wifi": "📶 {essid}",
+        "format-ethernet": "🔌 Wired",
+        "format-disconnected": "📶 Disconnected",
+        "tooltip-format-wifi": "{essid} — {signalStrength}%\n{ipaddr}/{cidr}",
+        "tooltip-format-disconnected": "No connection",
         "on-click": "nm-connection-editor"
     },
     "pulseaudio": {
-        "format": "{icon} {volume}%",
-        "format-muted": " mute",
-        "format-icons": {
-            "default": ["", "", ""]
-        },
+        "format": "🔊 {volume}%",
+        "format-muted": "🔇 Muted",
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
         "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
         "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-",

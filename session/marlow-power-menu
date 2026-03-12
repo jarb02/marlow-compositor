@@ -1,15 +1,19 @@
-#\!/bin/bash
+#!/bin/bash
 # marlow-power-menu — Power menu via wofi
-# Keybind: Super+P in Marlow compositor
+# Accessible from: waybar power button, Super+P keybind
 
-choice=$(printf "Lock\nLogout\nSuspend\nReboot\nShutdown" | wofi --dmenu --prompt "Power" --width 200 --lines 5 --cache-file /dev/null)
+OPTIONS='🔒 Lock\n🚪 Logout\n😴 Suspend\n🔄 Reboot\n⏻ Shutdown'
 
-case "$choice" in
+choice=$(printf "$OPTIONS" | wofi --show dmenu --cache-file /dev/null --prompt "Power")
+
+# Strip emoji prefix to match
+action=$(echo "$choice" | sed 's/^[^ ]* //')
+
+case "$action" in
     Lock)
         swaylock -f -c 1a1a2e ;;
     Logout)
-        # Stop compositor cleanly (same as Ctrl+Q)
-        pkill -SIGTERM marlow-compos ;;
+        pkill -SIGTERM -f marlow-compositor ;;
     Suspend)
         swaylock -f -c 1a1a2e &
         sleep 1
