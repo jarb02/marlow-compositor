@@ -24,12 +24,31 @@ window#waybar {
     color: #cccccc;
 }
 
+#battery.charging {
+    color: #51cf66;
+}
+
 #battery.warning {
     color: #f0c674;
 }
 
 #battery.critical {
     color: #cc6666;
+}
+
+#network.disconnected {
+    color: #666666;
+}
+
+/* Power button */
+#custom-power {
+    color: #cc6666;
+    font-size: 16px;
+    padding: 0 12px 0 8px;
+}
+
+#custom-power:hover {
+    color: #ff6b6b;
 }
 
 /* Marlow status indicator */

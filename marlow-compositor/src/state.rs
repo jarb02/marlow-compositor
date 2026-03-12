@@ -139,22 +139,31 @@ impl Marlow {
 
         let mut seat_state = SeatState::new();
 
-        // Keyboard layout: reads XKB_DEFAULT_LAYOUT env var (default: "us")
-        // Set XKB_DEFAULT_LAYOUT=latam for Latin American keyboards
+        // Keyboard layout: auto-detect from XKB_DEFAULT_* env vars (set by session script)
+        // Session script reads from localectl/vconsole.conf — never hardcoded
         let kb_layout = std::env::var("XKB_DEFAULT_LAYOUT").unwrap_or_else(|_| "us".into());
+        let kb_variant = std::env::var("XKB_DEFAULT_VARIANT").unwrap_or_default();
+        let kb_options = std::env::var("XKB_DEFAULT_OPTIONS").ok();
+        tracing::info!("Keyboard: layout={kb_layout} variant={kb_variant} options={kb_options:?}");
+
+        let xkb_config = smithay::input::keyboard::XkbConfig {
+            layout: &kb_layout,
+            variant: &kb_variant,
+            options: kb_options.clone(),
+            ..Default::default()
+        };
 
         // User seat: receives hardware input (libinput/winit events)
         let mut user_seat: Seat<Self> = seat_state.new_wl_seat(&dh, "user");
-        user_seat.add_keyboard(smithay::input::keyboard::XkbConfig {
-            layout: &kb_layout,
-            ..Default::default()
-        }, 200, 25).unwrap();
+        user_seat.add_keyboard(xkb_config.clone(), 200, 25).unwrap();
         user_seat.add_pointer();
 
         // Agent seat: receives IPC commands from the Python agent.
         let mut agent_seat: Seat<Self> = seat_state.new_wl_seat(&dh, "marlow-agent");
         agent_seat.add_keyboard(smithay::input::keyboard::XkbConfig {
             layout: &kb_layout,
+            variant: &kb_variant,
+            options: kb_options,
             ..Default::default()
         }, 200, 25).unwrap();
         agent_seat.add_pointer();

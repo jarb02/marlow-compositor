@@ -12,32 +12,51 @@
     "modules-right": [
         "battery",
         "network",
-        "pulseaudio"
+        "pulseaudio",
+        "custom/power"
     ],
     "custom/marlow": {
         "format": "  Marlow OS",
-        "on-click": "python3 /home/josemarlow/marlow/launcher.py"
+        "on-click": "python3 /home/josemarlow/marlow/marlow/launcher.py",
+        "tooltip": "Open Marlow launcher"
     },
     "clock": {
-        "format": "{:%H:%M  %b %d, %Y}"
+        "format": "{:%H:%M  %b %d, %Y}",
+        "tooltip-format": "{:%A, %B %d, %Y}"
     },
     "battery": {
         "format": "{icon} {capacity}%",
-        "format-icons": [
-            "",
-            "",
-            "",
-            "",
-            ""
-        ]
+        "format-charging": " {capacity}%",
+        "format-icons": ["", "", "", "", ""],
+        "states": {
+            "warning": 30,
+            "critical": 15
+        },
+        "tooltip-format": "{timeTo} — {power:.1f}W"
     },
     "network": {
         "format-wifi": " {signalStrength}%",
-        "format-disconnected": " off"
+        "format-ethernet": " wired",
+        "format-disconnected": " off",
+        "tooltip-format-wifi": "{essid} ({signalStrength}%)\n{ipaddr}/{cidr}",
+        "tooltip-format-disconnected": "Disconnected",
+        "on-click": "nm-connection-editor"
     },
     "pulseaudio": {
-        "format": " {volume}%",
-        "format-muted": " mute"
+        "format": "{icon} {volume}%",
+        "format-muted": " mute",
+        "format-icons": {
+            "default": ["", "", ""]
+        },
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
+        "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-",
+        "tooltip-format": "{desc}\n{volume}%"
+    },
+    "custom/power": {
+        "format": "⏻",
+        "on-click": "/usr/local/bin/marlow-power-menu",
+        "tooltip": "Power Menu"
     },
     "custom/marlow-status": {
         "exec": "bash /home/josemarlow/marlow-compositor/config/waybar/marlow-status.sh",

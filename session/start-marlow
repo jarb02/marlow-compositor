@@ -1,4 +1,4 @@
-#!/bin/bash
+#\!/bin/bash
 # start-marlow — Marlow OS Wayland Session
 # Launched by GDM (or any display manager) via /usr/share/wayland-sessions/marlow.desktop
 # Also works from TTY: start-marlow
@@ -12,7 +12,20 @@ export QT_QPA_PLATFORM=wayland
 export QT_STYLE_OVERRIDE=adwaita-dark
 export XCURSOR_THEME=Adwaita
 export XCURSOR_SIZE=24
-export XKB_DEFAULT_LAYOUT=latam
+
+# Detect keyboard layout from system config (never hardcode)
+if [ -z "$XKB_DEFAULT_LAYOUT" ]; then
+    _layout=$(localectl status 2>/dev/null | awk "/X11 Layout:/{print \}")
+    [ -n "$_layout" ] && export XKB_DEFAULT_LAYOUT="$_layout"
+fi
+if [ -z "$XKB_DEFAULT_VARIANT" ]; then
+    _variant=$(localectl status 2>/dev/null | awk "/X11 Variant:/{print \}")
+    [ -n "$_variant" ] && export XKB_DEFAULT_VARIANT="$_variant"
+fi
+if [ -z "$XKB_DEFAULT_OPTIONS" ]; then
+    _options=$(localectl status 2>/dev/null | awk "/X11 Options:/{print \}")
+    [ -n "$_options" ] && export XKB_DEFAULT_OPTIONS="$_options"
+fi
 
 # Ensure runtime dir exists
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
@@ -39,14 +52,9 @@ _marlow_session_setup() {
                 WAYLAND_DISPLAY=$(basename "$sock")
 
                 # Export session env to systemd and D-Bus (needed for portals)
-                dbus-update-activation-environment --systemd \
-                    WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP \
-                    XDG_SESSION_TYPE DISPLAY XCURSOR_THEME XCURSOR_SIZE
+                dbus-update-activation-environment --systemd                     WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP                     XDG_SESSION_TYPE DISPLAY XCURSOR_THEME XCURSOR_SIZE
 
-                systemctl --user import-environment \
-                    WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP \
-                    XDG_SESSION_TYPE DISPLAY XCURSOR_THEME XCURSOR_SIZE \
-                    MOZ_ENABLE_WAYLAND QT_QPA_PLATFORM QT_STYLE_OVERRIDE XKB_DEFAULT_LAYOUT PATH
+                systemctl --user import-environment                     WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP                     XDG_SESSION_TYPE DISPLAY XCURSOR_THEME XCURSOR_SIZE                     MOZ_ENABLE_WAYLAND QT_QPA_PLATFORM QT_STYLE_OVERRIDE PATH
 
                 # Activate all Marlow session services
                 systemctl --user start marlow-session.target
