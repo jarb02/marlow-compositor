@@ -1,0 +1,21 @@
+#\!/bin/bash
+# marlow-power-menu — Power menu via wofi
+# Keybind: Super+P in Marlow compositor
+
+choice=$(printf "Lock\nLogout\nSuspend\nReboot\nShutdown" | wofi --dmenu --prompt "Power" --width 200 --lines 5 --cache-file /dev/null)
+
+case "$choice" in
+    Lock)
+        swaylock -f -c 1a1a2e ;;
+    Logout)
+        # Stop compositor cleanly (same as Ctrl+Q)
+        pkill -SIGTERM marlow-compos ;;
+    Suspend)
+        swaylock -f -c 1a1a2e &
+        sleep 1
+        systemctl suspend ;;
+    Reboot)
+        systemctl reboot ;;
+    Shutdown)
+        systemctl poweroff ;;
+esac

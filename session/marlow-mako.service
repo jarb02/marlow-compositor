@@ -1,6 +1,5 @@
 [Unit]
 Description=Marlow notification daemon (mako)
-After=marlow-session.target
 PartOf=marlow-session.target
 
 [Service]

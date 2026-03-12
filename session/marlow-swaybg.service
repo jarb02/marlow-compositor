@@ -1,6 +1,5 @@
 [Unit]
 Description=Marlow wallpaper (swaybg)
-After=marlow-session.target
 PartOf=marlow-session.target
 
 [Service]

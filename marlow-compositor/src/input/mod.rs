@@ -26,6 +26,8 @@ enum KeyAction {
     VoicePTTPress,
     VoicePTTRelease,
     ProactivityToggle,
+    Logout,
+    PowerMenu,
 }
 
 impl Marlow {
@@ -72,6 +74,10 @@ impl Marlow {
                             FilterResult::Intercept(KeyAction::LaunchTerminal)
                         } else if modifiers.logo && sym == keysyms::KEY_Escape.into() {
                             FilterResult::Intercept(KeyAction::ProactivityToggle)
+                        } else if modifiers.logo && modifiers.shift && sym == keysyms::KEY_e.into() {
+                            FilterResult::Intercept(KeyAction::Logout)
+                        } else if modifiers.logo && sym == keysyms::KEY_p.into() {
+                            FilterResult::Intercept(KeyAction::PowerMenu)
                         } else if modifiers.logo && sym == keysyms::KEY_v.into() {
                             FilterResult::Intercept(KeyAction::VoicePTTPress)
                         } else {
@@ -116,6 +122,19 @@ impl Marlow {
                     Some(KeyAction::VoicePTTRelease) => {
                         tracing::info!("Super+V — voice push-to-talk STOP");
                         let _ = std::fs::write("/tmp/marlow-voice-trigger", "release");
+                    }
+                    Some(KeyAction::Logout) => {
+                        tracing::info!("Super+Shift+E — logout");
+                        self.loop_signal.stop();
+                    }
+                    Some(KeyAction::PowerMenu) => {
+                        tracing::info!("Super+P — power menu");
+                        std::process::Command::new("marlow-power-menu")
+                            .env("WAYLAND_DISPLAY", &self.socket_name)
+                            .env("XDG_RUNTIME_DIR",
+                                std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())
+                            .spawn()
+                            .ok();
                     }
                     _ => {}
                 }

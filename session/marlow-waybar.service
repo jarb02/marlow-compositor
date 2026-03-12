@@ -1,6 +1,5 @@
 [Unit]
 Description=Marlow top panel (waybar)
-After=marlow-session.target
 PartOf=marlow-session.target
 
 [Service]
