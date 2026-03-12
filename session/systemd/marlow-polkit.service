@@ -1,0 +1,16 @@
+[Unit]
+Description=Polkit authentication agent
+PartOf=marlow-session.target
+# Wait for compositor to be running (xwayland-satellite provides DISPLAY)
+After=marlow-daemon.service
+
+[Service]
+Type=simple
+# lxpolkit needs DISPLAY from xwayland-satellite
+# The compositor sets DISPLAY and exports it via dbus-update-activation-environment
+ExecStart=/usr/bin/lxpolkit
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=marlow-session.target

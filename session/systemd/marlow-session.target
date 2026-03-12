@@ -1,0 +1,12 @@
+[Unit]
+Description=Marlow OS Session
+Documentation=https://github.com/jarb02/marlow-compositor
+BindsTo=graphical-session.target
+Wants=marlow-mako.service
+Wants=marlow-swaybg.service
+Wants=marlow-waybar.service
+Wants=marlow-daemon.service
+Wants=marlow-voice.service
+Wants=marlow-sidebar.service
+Wants=marlow-polkit.service
+Wants=marlow-idle.service

@@ -1,0 +1,19 @@
+[Unit]
+Description=Marlow idle manager (swayidle)
+PartOf=marlow-session.target
+
+[Service]
+Type=simple
+# 900s (15min) → lock screen
+# 960s (16min) → suspend (1min after lock)
+# before-sleep → always lock before suspend (lid close, power button)
+# after-resume → no-op for now (DPMS not yet supported by compositor)
+ExecStart=/usr/bin/swayidle -w \
+    timeout 900 'swaylock -f -c 1a1a2e' \
+    timeout 960 'systemctl suspend' \
+    before-sleep 'swaylock -f -c 1a1a2e'
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=marlow-session.target

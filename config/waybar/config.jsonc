@@ -16,6 +16,7 @@
         "network",
         "battery",
         "clock#date",
+        "tray",
         "custom/power"
     ],
     "custom/marlow": {
@@ -97,5 +98,9 @@
         "format": "⏻ ",
         "on-click": "/usr/local/bin/marlow-power-menu",
         "tooltip": "Power Menu (Super+P)"
+    },
+    "tray": {
+        "icon-size": 18,
+        "spacing": 8
     }
 }
