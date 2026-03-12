@@ -133,7 +133,7 @@ impl Marlow {
                     Some(KeyAction::LaunchApps) => {
                         tracing::info!("Super+A — app launcher");
                         std::process::Command::new("wofi")
-                            .args(["--show", "drun", "--allow-images", "--image-size", "24"])
+                            .args(["--show", "drun", "--allow-images"])
                             .env("WAYLAND_DISPLAY", &self.socket_name)
                             .env("XDG_RUNTIME_DIR",
                                 std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())

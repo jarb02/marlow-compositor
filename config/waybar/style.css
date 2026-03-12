@@ -1,29 +1,45 @@
 * {
-    font-family: "Font Awesome 6 Free Solid", "Font Awesome 6 Brands", "Noto Color Emoji", "JetBrains Mono", "Noto Sans", "Cantarell", sans-serif;
+    font-family: 'Font Awesome 6 Free Solid', 'Font Awesome 6 Brands', 'Noto Sans Mono', 'Noto Sans', monospace;
     font-size: 13px;
 }
 
 window#waybar {
-    background-color: rgba(22, 33, 62, 0.95);
-    color: #c0c0c0;
+    background-color: rgba(22, 33, 62, 0.92);
     border-bottom: 2px solid rgba(230, 126, 34, 0.4);
+    color: #ffffff;
+    transition-property: background-color;
+    transition-duration: .5s;
 }
 
-/* Marlow branding — orange accent */
+window#waybar.hidden {
+    opacity: 0.2;
+}
+
+button {
+    box-shadow: inset 0 -3px transparent;
+    border: none;
+    border-radius: 0;
+}
+
+button:hover {
+    background: inherit;
+    box-shadow: inset 0 -3px #e67e22;
+}
+
+/* Marlow branding */
 #custom-marlow {
     color: #e67e22;
     font-weight: bold;
-    padding: 0 15px;
+    padding: 0 12px;
 }
 
 #custom-marlow:hover {
     color: #f39c12;
 }
 
-/* App launcher button */
+/* App launcher */
 #custom-apps {
     color: #c0c0c0;
-    font-size: 15px;
     padding: 0 10px;
 }
 
@@ -31,68 +47,104 @@ window#waybar {
     color: #e67e22;
 }
 
-/* Clock — bright for readability */
+/* Marlow agent status */
+#custom-marlow-status {
+    font-size: 12px;
+    padding: 0 6px;
+}
+
+/* Standard modules */
+#clock,
+#battery,
+#cpu,
+#memory,
+#disk,
+#temperature,
+#backlight,
+#network,
+#pulseaudio,
+#wireplumber,
+#tray,
+#idle_inhibitor {
+    padding: 0 10px;
+    color: #c0c0c0;
+}
+
+/* Clock */
 #clock {
     color: #ffffff;
     font-weight: bold;
 }
 
-/* Status modules — silver contrast */
-#battery, #network, #pulseaudio {
-    padding: 0 10px;
+/* Battery */
+#battery {
     color: #c0c0c0;
 }
 
-#battery.charging {
+#battery.charging, #battery.plugged {
     color: #51cf66;
+}
+
+@keyframes blink {
+    to {
+        background-color: #cc3333;
+        color: #ffffff;
+    }
+}
+
+#battery.critical:not(.charging) {
+    background-color: #cc3333;
+    color: #ffffff;
+    animation-name: blink;
+    animation-duration: 0.5s;
+    animation-timing-function: steps(12);
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
 }
 
 #battery.warning {
     color: #e67e22;
 }
 
-#battery.critical {
-    color: #cc6666;
-    font-weight: bold;
+/* Network */
+#network {
+    color: #c0c0c0;
 }
 
 #network.disconnected {
-    color: #555555;
+    color: #666666;
 }
 
-/* Power button — orange, red on hover */
+/* Pulseaudio */
+#pulseaudio {
+    color: #c0c0c0;
+}
+
+#pulseaudio.muted {
+    color: #666666;
+}
+
+/* Power button */
 #custom-power {
     color: #e67e22;
-    font-size: 16px;
-    padding: 0 14px 0 8px;
+    font-size: 15px;
+    padding: 0 12px 0 6px;
 }
 
 #custom-power:hover {
     color: #cc3333;
-    background-color: rgba(204, 51, 51, 0.15);
-    border-radius: 4px;
 }
 
-/* Marlow status indicator */
-#custom-marlow-status {
-    font-size: 12px;
+/* Tray */
+#tray {
     padding: 0 6px;
 }
-#custom-marlow-status.idle {
-    color: #555;
+
+#tray > .passive {
+    -gtk-icon-effect: dim;
 }
-#custom-marlow-status.listening {
-    color: #4dabf7;
-}
-#custom-marlow-status.processing {
-    color: #e67e22;
-}
-#custom-marlow-status.responding {
-    color: #51cf66;
-}
-#custom-marlow-status.error {
-    color: #cc6666;
-}
-#custom-marlow-status.off {
-    color: #333;
+
+#tray > .needs-attention {
+    -gtk-icon-effect: highlight;
+    background-color: #e67e22;
 }

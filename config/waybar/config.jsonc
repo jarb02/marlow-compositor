@@ -2,6 +2,7 @@
     "layer": "top",
     "position": "top",
     "height": 30,
+    "spacing": 4,
     "modules-left": [
         "custom/marlow",
         "custom/apps",
@@ -11,9 +12,10 @@
         "clock"
     ],
     "modules-right": [
-        "battery",
-        "network",
         "pulseaudio",
+        "network",
+        "battery",
+        "clock#date",
         "custom/power"
     ],
     "custom/marlow": {
@@ -23,49 +25,77 @@
     },
     "custom/apps": {
         "format": "Apps",
-        "on-click": "wofi --show drun --allow-images --image-size 24",
-        "tooltip": "Application launcher"
-    },
-    "clock": {
-        "format": "{:%H:%M   %a %d %b}",
-        "tooltip-format": "{:%A, %B %d, %Y}"
-    },
-    "battery": {
-        "format": "{icon} {capacity}%",
-        "format-icons": ["", "", "", "", ""],
-        "format-charging": " {capacity}%",
-        "format-full": " Full",
-        "states": {
-            "warning": 30,
-            "critical": 15
-        },
-        "tooltip-format": "{timeTo} — {power:.1f}W"
-    },
-    "network": {
-        "format-wifi": " {essid}",
-        "format-ethernet": " Wired",
-        "format-disconnected": " Disconnected",
-        "tooltip-format-wifi": "{essid} — {signalStrength}%\n{ipaddr}/{cidr}",
-        "tooltip-format-disconnected": "No connection",
-        "on-click": "nm-connection-editor"
-    },
-    "pulseaudio": {
-        "format": " {volume}%",
-        "format-muted": " Muted",
-        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
-        "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
-        "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-",
-        "tooltip-format": "{desc}\n{volume}%"
-    },
-    "custom/power": {
-        "format": "",
-        "on-click": "/usr/local/bin/marlow-power-menu",
-        "tooltip": "Power Menu (Super+P)"
+        "on-click": "wofi --show drun --allow-images",
+        "tooltip": "Application launcher (Super+A)"
     },
     "custom/marlow-status": {
         "exec": "bash /home/josemarlow/marlow-compositor/config/waybar/marlow-status.sh",
         "return-type": "json",
         "interval": 2,
         "format": "{}"
+    },
+    "clock": {
+        "format": "{:%H:%M}",
+        "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>"
+    },
+    "clock#date": {
+        "format": "{:%a %d %b}",
+        "tooltip-format": "{:%A, %B %d, %Y}"
+    },
+    "battery": {
+        "states": {
+            "warning": 30,
+            "critical": 15
+        },
+        "format": "{capacity}% {icon}",
+        "format-full": "{capacity}% {icon}",
+        "format-charging": " {capacity}%",
+        "format-plugged": " {capacity}%",
+        "format-alt": "{time} {icon}",
+        "format-icons": [
+            "",
+            "",
+            "",
+            "",
+            ""
+        ]
+    },
+    "network": {
+        "format-wifi": "{essid} ({signalStrength}%) ",
+        "format-ethernet": "{ipaddr}/{cidr} ",
+        "tooltip-format": "{ifname} via {gwaddr} ",
+        "format-linked": "{ifname} (No IP) ",
+        "format-disconnected": "Disconnected ⚠",
+        "format-alt": "{ifname}: {ipaddr}/{cidr}",
+        "on-click": "nm-connection-editor"
+    },
+    "pulseaudio": {
+        "format": "{volume}% {icon} {format_source}",
+        "format-bluetooth": "{volume}% {icon} {format_source}",
+        "format-bluetooth-muted": " {icon} {format_source}",
+        "format-muted": " {format_source}",
+        "format-source": "{volume}% ",
+        "format-source-muted": "",
+        "format-icons": {
+            "headphone": "",
+            "hands-free": "",
+            "headset": "",
+            "phone": "",
+            "portable": "",
+            "car": "",
+            "default": [
+                "",
+                "",
+                ""
+            ]
+        },
+        "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+        "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
+        "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-"
+    },
+    "custom/power": {
+        "format": "⏻ ",
+        "on-click": "/usr/local/bin/marlow-power-menu",
+        "tooltip": "Power Menu (Super+P)"
     }
 }
