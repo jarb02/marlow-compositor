@@ -1,0 +1,13 @@
+[Unit]
+Description=Marlow top panel (waybar)
+After=marlow-session.target
+PartOf=marlow-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/waybar -c /home/josemarlow/marlow-compositor/config/waybar/config.jsonc -s /home/josemarlow/marlow-compositor/config/waybar/style.css
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=marlow-session.target

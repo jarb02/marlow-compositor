@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Marlow OS
+Comment=AI-first Wayland desktop
+Exec=start-marlow
+Type=Application
+DesktopNames=marlow

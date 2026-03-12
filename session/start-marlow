@@ -1,0 +1,75 @@
+#!/bin/bash
+# start-marlow — Marlow OS Wayland Session
+# Launched by GDM (or any display manager) via /usr/share/wayland-sessions/marlow.desktop
+# Also works from TTY: start-marlow
+
+# --- Environment ---
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=marlow
+export XDG_SESSION_DESKTOP=marlow
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM=wayland
+export XCURSOR_THEME=Adwaita
+export XCURSOR_SIZE=24
+export XKB_DEFAULT_LAYOUT=latam
+
+# Ensure runtime dir exists
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# Source API keys and user env vars
+if [ -f "$HOME/.config/marlow/env" ]; then
+    set -a
+    . "$HOME/.config/marlow/env"
+    set +a
+fi
+
+# Tell compositor that systemd manages session apps
+export MARLOW_SESSION_MANAGED=1
+
+# --- Session setup (runs in background while compositor starts) ---
+_marlow_session_setup() {
+    local waited=0
+
+    # Poll for Wayland socket (up to 10s)
+    while [ "$waited" -lt 20 ]; do
+        for sock in "$XDG_RUNTIME_DIR"/wayland-*; do
+            if [ -S "$sock" ]; then
+                export WAYLAND_DISPLAY
+                WAYLAND_DISPLAY=$(basename "$sock")
+
+                # Export session env to systemd and D-Bus (needed for portals)
+                dbus-update-activation-environment --systemd \
+                    WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP \
+                    XDG_SESSION_TYPE DISPLAY XCURSOR_THEME XCURSOR_SIZE
+
+                systemctl --user import-environment \
+                    WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP \
+                    XDG_SESSION_TYPE DISPLAY XCURSOR_THEME XCURSOR_SIZE \
+                    MOZ_ENABLE_WAYLAND QT_QPA_PLATFORM XKB_DEFAULT_LAYOUT PATH
+
+                # Activate all Marlow session services
+                systemctl --user start marlow-session.target
+
+                # Notification after services are up
+                sleep 2
+                notify-send -a "Marlow" -t 5000 "Marlow OS" "Session ready" 2>/dev/null
+                return 0
+            fi
+        done
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+
+    echo "start-marlow: timeout waiting for Wayland socket" >&2
+    return 1
+}
+_marlow_session_setup &
+
+# --- Run compositor (foreground — session lives as long as this process) ---
+"$HOME/marlow-compositor/target/release/marlow-compositor"
+compositor_exit=$?
+
+# --- Cleanup when compositor exits ---
+systemctl --user stop marlow-session.target 2>/dev/null
+
+exit $compositor_exit

@@ -67,9 +67,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Auto-spawn essential apps in KMS mode (full desktop session)
+    // When MARLOW_SESSION_MANAGED is set (GDM session), systemd handles services.
+    // When unset (test_kms.sh / TTY), compositor spawns everything directly.
     if !use_winit {
         cleanup_stale_processes();
-        spawn_session_apps();
+        if std::env::var("MARLOW_SESSION_MANAGED").is_ok() {
+            tracing::info!("Session managed by systemd — skipping app spawns");
+        } else {
+            spawn_session_apps();
+        }
     }
 
     // Optionally spawn additional clients: marlow-compositor -c foot -c foot

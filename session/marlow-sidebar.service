@@ -1,0 +1,18 @@
+[Unit]
+Description=Marlow sidebar chat window
+After=marlow-daemon.service
+PartOf=marlow-session.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/bin/python3 -c "from marlow.bridges.sidebar.app import main; main()"
+WorkingDirectory=/home/josemarlow/marlow
+Environment=PATH=/home/josemarlow/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=LD_PRELOAD=/lib64/libgtk4-layer-shell.so
+EnvironmentFile=-/home/josemarlow/.config/marlow/env
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=marlow-session.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Marlow wallpaper (swaybg)
+After=marlow-session.target
+PartOf=marlow-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/swaybg -m solid_color -c #1a1a2e
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=marlow-session.target

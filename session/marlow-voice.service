@@ -1,0 +1,18 @@
+[Unit]
+Description=Marlow voice daemon
+After=marlow-daemon.service
+PartOf=marlow-session.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/python3 -c "from voice_daemon import main; main()"
+WorkingDirectory=/home/josemarlow/marlow
+Environment=PATH=/home/josemarlow/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+EnvironmentFile=-/home/josemarlow/.config/marlow/env
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=marlow-session.target

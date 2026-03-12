@@ -1,0 +1,13 @@
+[Unit]
+Description=Marlow notification daemon (mako)
+After=marlow-session.target
+PartOf=marlow-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/mako
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=marlow-session.target
