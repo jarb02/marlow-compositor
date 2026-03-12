@@ -51,8 +51,7 @@ impl CompositorHandler for Marlow {
         };
 
         // Handle layer surface commits (initial configure + arrange)
-        // First pass: find the output and layer, arrange, send configure
-        let layer_focus_candidate = {
+        {
             let output = self.user_space.outputs().find(|o| {
                 let map = layer_map_for_output(o);
                 map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).is_some()
@@ -78,32 +77,10 @@ impl CompositorHandler for Marlow {
                         layer.layer_surface().send_pending_configure();
                     }
                 }
-
-                // Extract layer focus candidate before dropping map
-                let candidate = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
-                    .filter(|l| l.can_receive_keyboard_focus())
-                    .map(|l| l.layer_surface().wl_surface().clone());
-                drop(map);
-                candidate
-            } else {
-                None
-            }
-        };
-
-        // Second pass: grant keyboard focus (no conflicting borrows)
-        if let Some(layer_wl) = layer_focus_candidate {
-            let current_focus = self.user_seat.get_keyboard().unwrap().current_focus();
-            let already_focused = current_focus
-                .map(|f| f == layer_wl)
-                .unwrap_or(false);
-            if !already_focused {
-                let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-                self.user_seat.get_keyboard().unwrap().set_focus(
-                    self,
-                    Some(layer_wl),
-                    serial,
-                );
-                tracing::info!("Layer surface commit: keyboard focus granted");
+                // NOTE: keyboard focus is NOT granted here on commit.
+                // Focus is only granted in new_layer_surface() (initial map)
+                // and in the click handler (user clicks on layer surface).
+                // Previously this stole focus on every WebKit buffer commit.
             }
         }
 
