@@ -1,27 +1,46 @@
 * {
-    font-family: "Noto Color Emoji", "JetBrains Mono", "Noto Sans", "Cantarell", sans-serif;
+    font-family: "Font Awesome 6 Free Solid", "Font Awesome 6 Brands", "Noto Color Emoji", "JetBrains Mono", "Noto Sans", "Cantarell", sans-serif;
     font-size: 13px;
 }
 
 window#waybar {
-    background-color: rgba(27, 42, 74, 0.95);
-    color: #ffffff;
+    background-color: rgba(22, 33, 62, 0.95);
+    color: #c0c0c0;
+    border-bottom: 2px solid rgba(230, 126, 34, 0.4);
 }
 
+/* Marlow branding — orange accent */
 #custom-marlow {
-    color: #7eb8da;
+    color: #e67e22;
     font-weight: bold;
     padding: 0 15px;
 }
 
+#custom-marlow:hover {
+    color: #f39c12;
+}
+
+/* App launcher button */
+#custom-apps {
+    color: #c0c0c0;
+    font-size: 15px;
+    padding: 0 10px;
+}
+
+#custom-apps:hover {
+    color: #e67e22;
+}
+
+/* Clock — bright for readability */
 #clock {
     color: #ffffff;
     font-weight: bold;
 }
 
+/* Status modules — silver contrast */
 #battery, #network, #pulseaudio {
     padding: 0 10px;
-    color: #cccccc;
+    color: #c0c0c0;
 }
 
 #battery.charging {
@@ -29,7 +48,7 @@ window#waybar {
 }
 
 #battery.warning {
-    color: #f0c674;
+    color: #e67e22;
 }
 
 #battery.critical {
@@ -38,18 +57,20 @@ window#waybar {
 }
 
 #network.disconnected {
-    color: #666666;
+    color: #555555;
 }
 
-/* Power button */
+/* Power button — orange, red on hover */
 #custom-power {
-    color: #cc6666;
+    color: #e67e22;
     font-size: 16px;
     padding: 0 14px 0 8px;
 }
 
 #custom-power:hover {
-    color: #ff6b6b;
+    color: #cc3333;
+    background-color: rgba(204, 51, 51, 0.15);
+    border-radius: 4px;
 }
 
 /* Marlow status indicator */
@@ -58,20 +79,20 @@ window#waybar {
     padding: 0 6px;
 }
 #custom-marlow-status.idle {
-    color: #666;
+    color: #555;
 }
 #custom-marlow-status.listening {
     color: #4dabf7;
 }
 #custom-marlow-status.processing {
-    color: #ffc107;
+    color: #e67e22;
 }
 #custom-marlow-status.responding {
     color: #51cf66;
 }
 #custom-marlow-status.error {
-    color: #ff6b6b;
+    color: #cc6666;
 }
 #custom-marlow-status.off {
-    color: #444;
+    color: #333;
 }

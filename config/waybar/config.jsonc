@@ -4,6 +4,7 @@
     "height": 30,
     "modules-left": [
         "custom/marlow",
+        "custom/apps",
         "custom/marlow-status"
     ],
     "modules-center": [
@@ -16,18 +17,24 @@
         "custom/power"
     ],
     "custom/marlow": {
-        "format": "🤖 Marlow OS",
+        "format": "Marlow OS",
         "on-click": "python3 /home/josemarlow/marlow/marlow/launcher.py",
         "tooltip": "Super+M to open launcher"
     },
+    "custom/apps": {
+        "format": "Apps",
+        "on-click": "wofi --show drun --allow-images --image-size 24",
+        "tooltip": "Application launcher"
+    },
     "clock": {
-        "format": "🕐 {:%H:%M   %a %d %b}",
+        "format": "{:%H:%M   %a %d %b}",
         "tooltip-format": "{:%A, %B %d, %Y}"
     },
     "battery": {
-        "format": "🔋 {capacity}%",
-        "format-charging": "⚡ {capacity}%",
-        "format-full": "🔋 Full",
+        "format": "{icon} {capacity}%",
+        "format-icons": ["", "", "", "", ""],
+        "format-charging": " {capacity}%",
+        "format-full": " Full",
         "states": {
             "warning": 30,
             "critical": 15
@@ -35,25 +42,25 @@
         "tooltip-format": "{timeTo} — {power:.1f}W"
     },
     "network": {
-        "format-wifi": "📶 {essid}",
-        "format-ethernet": "🔌 Wired",
-        "format-disconnected": "📶 Disconnected",
+        "format-wifi": " {essid}",
+        "format-ethernet": " Wired",
+        "format-disconnected": " Disconnected",
         "tooltip-format-wifi": "{essid} — {signalStrength}%\n{ipaddr}/{cidr}",
         "tooltip-format-disconnected": "No connection",
         "on-click": "nm-connection-editor"
     },
     "pulseaudio": {
-        "format": "🔊 {volume}%",
-        "format-muted": "🔇 Muted",
+        "format": " {volume}%",
+        "format-muted": " Muted",
         "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
         "on-scroll-up": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%+",
         "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-",
         "tooltip-format": "{desc}\n{volume}%"
     },
     "custom/power": {
-        "format": "⏻",
+        "format": "",
         "on-click": "/usr/local/bin/marlow-power-menu",
-        "tooltip": "Power Menu"
+        "tooltip": "Power Menu (Super+P)"
     },
     "custom/marlow-status": {
         "exec": "bash /home/josemarlow/marlow-compositor/config/waybar/marlow-status.sh",

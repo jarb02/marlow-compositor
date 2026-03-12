@@ -28,6 +28,7 @@ enum KeyAction {
     ProactivityToggle,
     Logout,
     PowerMenu,
+    LaunchApps,
 }
 
 impl Marlow {
@@ -76,6 +77,8 @@ impl Marlow {
                             FilterResult::Intercept(KeyAction::ProactivityToggle)
                         } else if modifiers.logo && modifiers.shift && sym == keysyms::KEY_e.into() {
                             FilterResult::Intercept(KeyAction::Logout)
+                        } else if modifiers.logo && sym == keysyms::KEY_a.into() {
+                            FilterResult::Intercept(KeyAction::LaunchApps)
                         } else if modifiers.logo && sym == keysyms::KEY_p.into() {
                             FilterResult::Intercept(KeyAction::PowerMenu)
                         } else if modifiers.logo && sym == keysyms::KEY_v.into() {
@@ -126,6 +129,16 @@ impl Marlow {
                     Some(KeyAction::Logout) => {
                         tracing::info!("Super+Shift+E — logout");
                         self.loop_signal.stop();
+                    }
+                    Some(KeyAction::LaunchApps) => {
+                        tracing::info!("Super+A — app launcher");
+                        std::process::Command::new("wofi")
+                            .args(["--show", "drun", "--allow-images", "--image-size", "24"])
+                            .env("WAYLAND_DISPLAY", &self.socket_name)
+                            .env("XDG_RUNTIME_DIR",
+                                std::env::var("XDG_RUNTIME_DIR").unwrap_or_default())
+                            .spawn()
+                            .ok();
                     }
                     Some(KeyAction::PowerMenu) => {
                         tracing::info!("Super+P — power menu");
