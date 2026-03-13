@@ -34,6 +34,7 @@ use smithay::{
 };
 
 use smithay::utils::IsAlive;
+use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
 use smithay::desktop::layer_map_for_output;
 use smithay::wayland::shell::wlr_layer::Layer as WlrLayer;
 use smithay::wayland::shell::xdg::decoration::XdgDecorationState;
@@ -167,6 +168,9 @@ impl Marlow {
             ..Default::default()
         }, 200, 25).unwrap();
         agent_seat.add_pointer();
+
+        // Enable zwp_virtual_keyboard_v1 protocol (allows wtype and similar tools)
+        VirtualKeyboardManagerState::new::<Self, _>(&dh, |_client| true);
 
         let user_space = Space::default();
         let shadow_space = Space::default();

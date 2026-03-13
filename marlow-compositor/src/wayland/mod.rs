@@ -114,7 +114,7 @@ use smithay::wayland::selection::data_device::{
     set_data_device_focus, DataDeviceHandler, DataDeviceState, WaylandDndGrabHandler,
 };
 use smithay::wayland::selection::SelectionHandler;
-use smithay::{delegate_data_device, delegate_output, delegate_seat};
+use smithay::{delegate_data_device, delegate_output, delegate_seat, delegate_virtual_keyboard_manager};
 
 impl SeatHandler for Marlow {
     type KeyboardFocus = WlSurface;
@@ -162,6 +162,7 @@ impl SeatHandler for Marlow {
 }
 
 delegate_seat!(Marlow);
+delegate_virtual_keyboard_manager!(Marlow);
 
 // ─── Data Device (clipboard + drag-and-drop) ───
 
