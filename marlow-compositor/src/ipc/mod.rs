@@ -74,6 +74,10 @@ pub fn poll_ipc(state: &mut Marlow) {
                 if !write_ok {
                     to_remove.push(i);
                 }
+                // Flush Wayland events to clients immediately after IPC input
+                // commands (SendKey, SendText, SendHotkey, etc.) so keyboard
+                // events reach the client without waiting for the next render frame.
+                let _ = state.display_handle.flush_clients();
             }
             Ok(None) => {} // No data (WouldBlock)
             Err(_) => {
@@ -560,7 +564,8 @@ fn handle_send_key(state: &mut Marlow, window_id: u64, key: u32, pressed: bool) 
     };
     let time = state.start_time.elapsed().as_millis() as u32;
 
-    keyboard.input::<(), _>(state, key.into(), key_state, serial, time, |_, _, _| {
+    // evdev keycodes need +8 offset for XKB (same as libinput backend)
+    keyboard.input::<(), _>(state, (key + 8).into(), key_state, serial, time, |_, _, _| {
         FilterResult::Forward
     });
 
@@ -597,15 +602,16 @@ fn handle_send_text(state: &mut Marlow, window_id: u64, text: &str) -> Response 
         let serial = SERIAL_COUNTER.next_serial();
 
         // Press shift if needed
+        // evdev keycodes need +8 offset for XKB (same as libinput backend)
         if shift {
             let s = SERIAL_COUNTER.next_serial();
-            keyboard.input::<(), _>(state, KEY_LEFTSHIFT.into(), KeyState::Pressed, s, time, |_, _, _| {
+            keyboard.input::<(), _>(state, (KEY_LEFTSHIFT + 8).into(), KeyState::Pressed, s, time, |_, _, _| {
                 FilterResult::Forward
             });
         }
 
         // Key press
-        keyboard.input::<(), _>(state, keycode.into(), KeyState::Pressed, serial, time, |_, _, _| {
+        keyboard.input::<(), _>(state, (keycode + 8).into(), KeyState::Pressed, serial, time, |_, _, _| {
             FilterResult::Forward
         });
 
@@ -613,7 +619,7 @@ fn handle_send_text(state: &mut Marlow, window_id: u64, text: &str) -> Response 
         let serial2 = SERIAL_COUNTER.next_serial();
         keyboard.input::<(), _>(
             state,
-            keycode.into(),
+            (keycode + 8).into(),
             KeyState::Released,
             serial2,
             time + 1,
@@ -625,7 +631,7 @@ fn handle_send_text(state: &mut Marlow, window_id: u64, text: &str) -> Response 
             let s = SERIAL_COUNTER.next_serial();
             keyboard.input::<(), _>(
                 state,
-                KEY_LEFTSHIFT.into(),
+                (KEY_LEFTSHIFT + 8).into(),
                 KeyState::Released,
                 s,
                 time + 1,
@@ -773,17 +779,17 @@ fn handle_send_hotkey(state: &mut Marlow, window_id: u64, modifiers: &[String], 
 
     let time = state.start_time.elapsed().as_millis() as u32;
 
-    // Press modifiers
+    // Press modifiers (evdev keycodes need +8 offset for XKB)
     for &code in &mod_codes {
         let serial = SERIAL_COUNTER.next_serial();
-        keyboard.input::<(), _>(state, code.into(), KeyState::Pressed, serial, time, |_, _, _| {
+        keyboard.input::<(), _>(state, (code + 8).into(), KeyState::Pressed, serial, time, |_, _, _| {
             FilterResult::Forward
         });
     }
 
     // Press main key
     let serial = SERIAL_COUNTER.next_serial();
-    keyboard.input::<(), _>(state, main_key.into(), KeyState::Pressed, serial, time, |_, _, _| {
+    keyboard.input::<(), _>(state, (main_key + 8).into(), KeyState::Pressed, serial, time, |_, _, _| {
         FilterResult::Forward
     });
 
@@ -791,7 +797,7 @@ fn handle_send_hotkey(state: &mut Marlow, window_id: u64, modifiers: &[String], 
     let serial = SERIAL_COUNTER.next_serial();
     keyboard.input::<(), _>(
         state,
-        main_key.into(),
+        (main_key + 8).into(),
         KeyState::Released,
         serial,
         time + 1,
@@ -801,7 +807,7 @@ fn handle_send_hotkey(state: &mut Marlow, window_id: u64, modifiers: &[String], 
     // Release modifiers (reverse order)
     for &code in mod_codes.iter().rev() {
         let serial = SERIAL_COUNTER.next_serial();
-        keyboard.input::<(), _>(state, code.into(), KeyState::Released, serial, time + 1, |_, _, _| {
+        keyboard.input::<(), _>(state, (code + 8).into(), KeyState::Released, serial, time + 1, |_, _, _| {
             FilterResult::Forward
         });
     }
@@ -888,6 +894,7 @@ fn handle_maximize_window(state: &mut Marlow, window_id: u64) -> Response {
 
 // ─── Keycode tables (evdev / US QWERTY) ───
 
+/// Evdev keycode for left shift (raw, before +8 XKB offset)
 const KEY_LEFTSHIFT: u32 = 42;
 
 /// Map a character to (evdev_keycode, needs_shift).
