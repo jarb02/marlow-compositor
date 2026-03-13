@@ -246,7 +246,7 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
                     let space = state.window_space_mut(window_id);
                     space.raise_element(&w, true);
                     let serial = SERIAL_COUNTER.next_serial();
-                    if let Some(keyboard) = state.agent_seat.get_keyboard() {
+                    if let Some(keyboard) = state.user_seat.get_keyboard() {
                         keyboard.set_focus(
                             state,
                             Some(w.toplevel().unwrap().wl_surface().clone()),
@@ -514,14 +514,18 @@ fn handle_request(request: Request, state: &mut Marlow, client_idx: usize) -> Re
 
 // ─── Input helpers ───
 
-/// Focus a window on the agent_seat keyboard (for targeted input).
-fn focus_agent_window(state: &mut Marlow, window_id: u64) -> Result<(), String> {
+/// Focus a window on the user_seat keyboard (for targeted IPC input).
+///
+/// Wayland clients only process key events from the seat whose keyboard
+/// sent wl_keyboard.enter to their surface. We must use user_seat so
+/// that clients like Firefox actually receive the input.
+fn focus_ipc_window(state: &mut Marlow, window_id: u64) -> Result<(), String> {
     let window = state.find_window_by_id(window_id).cloned()
         .ok_or_else(|| format!("Window {window_id} not found"))?;
     let space = state.window_space_mut(window_id);
     space.raise_element(&window, true);
     let serial = SERIAL_COUNTER.next_serial();
-    if let Some(keyboard) = state.agent_seat.get_keyboard() {
+    if let Some(keyboard) = state.user_seat.get_keyboard() {
         keyboard.set_focus(
             state,
             Some(window.toplevel().unwrap().wl_surface().clone()),
@@ -535,11 +539,11 @@ fn focus_agent_window(state: &mut Marlow, window_id: u64) -> Result<(), String> 
 
 /// Send a single key press/release to a specific window.
 fn handle_send_key(state: &mut Marlow, window_id: u64, key: u32, pressed: bool) -> Response {
-    if let Err(msg) = focus_agent_window(state, window_id) {
+    if let Err(msg) = focus_ipc_window(state, window_id) {
         return Response::Error { message: msg };
     }
 
-    let keyboard = match state.agent_seat.get_keyboard() {
+    let keyboard = match state.user_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
             return Response::Error {
@@ -567,11 +571,11 @@ fn handle_send_key(state: &mut Marlow, window_id: u64, key: u32, pressed: bool) 
 
 /// Type a string by synthesizing key press/release for each character.
 fn handle_send_text(state: &mut Marlow, window_id: u64, text: &str) -> Response {
-    if let Err(msg) = focus_agent_window(state, window_id) {
+    if let Err(msg) = focus_ipc_window(state, window_id) {
         return Response::Error { message: msg };
     }
 
-    let keyboard = match state.agent_seat.get_keyboard() {
+    let keyboard = match state.user_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
             return Response::Error {
@@ -657,7 +661,7 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
         .to_f64();
     let abs_pos = (window_loc.x + x, window_loc.y + y).into();
 
-    let pointer = state.agent_seat.get_pointer().unwrap();
+    let pointer = state.user_seat.get_pointer().unwrap();
     // Shadow-aware: search the correct space based on window_id
     let under = if state.is_shadow(window_id) {
         state.shadow_surface_under(abs_pos)
@@ -689,7 +693,7 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
 
     // Focus the window on click
     let serial = SERIAL_COUNTER.next_serial();
-    let keyboard = state.agent_seat.get_keyboard().unwrap();
+    let keyboard = state.user_seat.get_keyboard().unwrap();
     let space = state.window_space_mut(window_id);
     space.raise_element(&window, true);
     keyboard.set_focus(
@@ -731,11 +735,11 @@ fn handle_send_click(state: &mut Marlow, window_id: u64, x: f64, y: f64, button:
 
 /// Send a hotkey combination (modifiers + key).
 fn handle_send_hotkey(state: &mut Marlow, window_id: u64, modifiers: &[String], key: &str) -> Response {
-    if let Err(msg) = focus_agent_window(state, window_id) {
+    if let Err(msg) = focus_ipc_window(state, window_id) {
         return Response::Error { message: msg };
     }
 
-    let keyboard = match state.agent_seat.get_keyboard() {
+    let keyboard = match state.user_seat.get_keyboard() {
         Some(kb) => kb,
         None => {
             return Response::Error {
